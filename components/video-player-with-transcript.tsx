@@ -367,6 +367,11 @@ ${sentence.text}`
     setPlayedSeconds(seconds);
   };
 
+  const stopOverlayEvent = (event: React.SyntheticEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
   const fetchTranslation = async (
     payload: { word?: string; text?: string },
     timeoutMs = 4500
@@ -708,11 +713,14 @@ ${sentence.text}`
             <div
               key={currentSentence.id}
               className={cn(
-                'pointer-events-none absolute left-1/2 z-10 -translate-x-1/2 px-4 text-center sm:px-6',
+                'pointer-events-auto absolute left-1/2 z-10 -translate-x-1/2 px-4 text-center sm:px-6',
                 isPortraitVideo
                   ? 'bottom-28 w-[min(92%,620px)]'
                   : 'bottom-20 w-[min(94%,1100px)] md:bottom-24'
               )}
+              onTouchStart={stopOverlayEvent}
+              onPointerDown={stopOverlayEvent}
+              onClick={stopOverlayEvent}
             >
               <div
                 className={cn(
@@ -739,7 +747,7 @@ ${sentence.text}`
                   }
 
                   return (
-                    <span key={tokenKey} className="pointer-events-auto relative inline-block">
+                    <span key={tokenKey} className="relative inline-block">
                       <button
                         className={cn(
                           'inline rounded-md px-1.5 py-0.5 transition',
