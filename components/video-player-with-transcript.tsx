@@ -89,6 +89,15 @@ export function VideoPlayerWithTranscript({
   const [phraseTranslations, setPhraseTranslations] = useState<Record<string, string>>({});
   const [savedWordsSet, setSavedWordsSet] = useState<Set<string>>(new Set());
 
+  const getVideoElement = () =>
+    playerRef.current?.getInternalPlayer?.() as
+      | (HTMLVideoElement & {
+          webkitEnterFullscreen?: () => void;
+          webkitExitFullscreen?: () => void;
+          webkitRequestFullscreen?: () => Promise<void> | void;
+        })
+      | null;
+
   useEffect(() => {
     const saved = getSavedWords();
     setSavedWordsSet(new Set(saved.map((word) => `${word.videoId}:${word.normalizedWord}`)));
@@ -199,6 +208,45 @@ ${sentence.text}`
       );
     };
   }, []);
+
+  useEffect(() => {
+    if (!isPlayerReady) {
+      return;
+    }
+
+    const videoElement = getVideoElement();
+    if (!videoElement) {
+      return;
+    }
+
+    const handleNativeEnter = () => {
+      setFullscreenMode('internal');
+    };
+
+    const handleNativeExit = () => {
+      setFullscreenMode('none');
+    };
+
+    videoElement.addEventListener(
+      'webkitbeginfullscreen',
+      handleNativeEnter as EventListener
+    );
+    videoElement.addEventListener(
+      'webkitendfullscreen',
+      handleNativeExit as EventListener
+    );
+
+    return () => {
+      videoElement.removeEventListener(
+        'webkitbeginfullscreen',
+        handleNativeEnter as EventListener
+      );
+      videoElement.removeEventListener(
+        'webkitendfullscreen',
+        handleNativeExit as EventListener
+      );
+    };
+  }, [isPlayerReady]);
 
   useEffect(() => {
     if (!isPlayerReady || !subtitleTrackUrl) {
@@ -352,6 +400,7 @@ ${sentence.text}`
     const container = playerViewportRef.current as
       | (HTMLDivElement & { webkitRequestFullscreen?: () => Promise<void> | void })
       | null;
+    const videoElement = getVideoElement();
     const doc = document as Document & {
       webkitExitFullscreen?: () => Promise<void> | void;
     };
@@ -368,6 +417,19 @@ ${sentence.text}`
         }
         if (container.webkitRequestFullscreen) {
           await container.webkitRequestFullscreen();
+          return;
+        }
+        if (videoElement?.requestFullscreen) {
+          await videoElement.requestFullscreen();
+          return;
+        }
+        if (videoElement?.webkitRequestFullscreen) {
+          await videoElement.webkitRequestFullscreen();
+          return;
+        }
+        if (videoElement?.webkitEnterFullscreen) {
+          videoElement.webkitEnterFullscreen();
+          setFullscreenMode('internal');
         }
         return;
       }
@@ -378,6 +440,10 @@ ${sentence.text}`
       }
       if (doc.webkitExitFullscreen) {
         await doc.webkitExitFullscreen();
+        return;
+      }
+      if (videoElement?.webkitExitFullscreen) {
+        videoElement.webkitExitFullscreen();
       }
     } catch {
       // Prevent fullscreen API rejections from crashing the video page.
