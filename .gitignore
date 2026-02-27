@@ -1,0 +1,8 @@
+.next
+.next-dev
+node_modules
+.env.local
+.env
+.DS_Store
+*.log
+videoplayback.mp4

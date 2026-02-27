@@ -1,0 +1,261 @@
+'use client';
+
+import {
+  AlignLeft,
+  Captions,
+  Clock3,
+  ImageIcon,
+  KeyRound,
+  Type,
+  UploadCloud,
+  Video
+} from 'lucide-react';
+import { FormEvent, useRef, useState } from 'react';
+
+import { LEVELS } from '@/lib/constants';
+import type { LevelName } from '@/types/database';
+
+const INITIAL_FORM = {
+  level: 'A1' as LevelName,
+  title: '',
+  description: '',
+  duration: '',
+  transcriptLines: '',
+  adminPasscode: ''
+};
+
+export function AdminUploadForm() {
+  const [form, setForm] = useState(INITIAL_FORM);
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [thumbnailFile, setThumbnailFile] = useState<File | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const videoInputRef = useRef<HTMLInputElement>(null);
+  const thumbnailInputRef = useRef<HTMLInputElement>(null);
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    setIsLoading(true);
+    setMessage(null);
+    setError(null);
+
+    if (!videoFile) {
+      setError('Please select a video file.');
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      const payload = new FormData();
+      payload.set('level', form.level);
+      payload.set('title', form.title);
+      payload.set('description', form.description);
+      payload.set('duration', form.duration);
+      payload.set('transcriptLines', form.transcriptLines);
+      payload.set('adminPasscode', form.adminPasscode);
+      payload.set('videoFile', videoFile);
+
+      if (thumbnailFile) {
+        payload.set('thumbnailFile', thumbnailFile);
+      }
+
+      const response = await fetch('/api/admin/videos', {
+        method: 'POST',
+        body: payload
+      });
+
+      const result = (await response
+        .json()
+        .catch(() => ({ error: 'Invalid server response.' }))) as {
+        ok?: boolean;
+        id?: string;
+        transcriptCount?: number;
+        error?: string;
+      };
+
+      if (!response.ok) {
+        setError(result.error ?? 'Upload failed.');
+        setIsLoading(false);
+        return;
+      }
+
+      setMessage(
+        `Video uploaded successfully. ID: ${result.id}. Transcript lines: ${result.transcriptCount ?? 0}`
+      );
+      setForm((previous) => ({
+        ...INITIAL_FORM,
+        adminPasscode: previous.adminPasscode,
+        level: previous.level
+      }));
+      setVideoFile(null);
+      setThumbnailFile(null);
+
+      if (videoInputRef.current) {
+        videoInputRef.current.value = '';
+      }
+
+      if (thumbnailInputRef.current) {
+        thumbnailInputRef.current.value = '';
+      }
+    } catch (submitError) {
+      const text =
+        submitError instanceof Error ? submitError.message : 'Unexpected upload error.';
+      setError(text);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <form
+      onSubmit={handleSubmit}
+      className="space-y-6 rounded-xl border border-border/80 bg-panel p-4 sm:rounded-2xl sm:p-6 md:p-8"
+    >
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="space-y-1">
+          <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted sm:text-xs">
+            Level
+          </span>
+          <select
+            className="h-11 w-full rounded-xl border border-border/80 bg-surface px-3 text-base text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/25 sm:text-sm"
+            value={form.level}
+            onChange={(event) =>
+              setForm((prev) => ({ ...prev, level: event.target.value as LevelName }))
+            }
+          >
+            {LEVELS.map((level) => (
+              <option key={level} value={level}>
+                {level}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="space-y-1">
+          <span className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.12em] text-muted sm:text-xs">
+            <Clock3 className="h-4 w-4 text-accent" />
+            Duration (mm:ss)
+          </span>
+          <input
+            className="h-11 w-full rounded-xl border border-border/80 bg-surface px-3 text-base text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/25 sm:text-sm"
+            value={form.duration}
+            onChange={(event) => setForm((prev) => ({ ...prev, duration: event.target.value }))}
+            placeholder="08:40"
+            required
+          />
+        </label>
+      </div>
+
+      <label className="block space-y-1">
+        <span className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.12em] text-muted sm:text-xs">
+          <Type className="h-4 w-4 text-accent" />
+          Title
+        </span>
+        <input
+          className="h-11 w-full rounded-xl border border-border/80 bg-surface px-3 text-base text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/25 sm:text-sm"
+          value={form.title}
+          onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
+          placeholder="Talking About Travel Plans"
+          required
+        />
+      </label>
+
+      <label className="block space-y-1">
+        <span className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.12em] text-muted sm:text-xs">
+          <AlignLeft className="h-4 w-4 text-accent" />
+          Description
+        </span>
+        <textarea
+          className="min-h-24 w-full rounded-xl border border-border/80 bg-surface px-3 py-3 text-base text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/25 sm:text-sm"
+          value={form.description}
+          onChange={(event) =>
+            setForm((prev) => ({ ...prev, description: event.target.value }))
+          }
+          placeholder="Short summary for learners"
+          required
+        />
+      </label>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="space-y-1">
+          <span className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.12em] text-muted sm:text-xs">
+            <Video className="h-4 w-4 text-accent" />
+            Video file
+          </span>
+          <input
+            ref={videoInputRef}
+            type="file"
+            accept="video/*"
+            className="w-full rounded-xl border border-border/80 bg-surface px-3 py-2.5 text-sm text-ink file:mr-2 file:rounded-lg file:border file:border-border file:bg-panel file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-muted sm:file:mr-3 sm:file:text-sm"
+            onChange={(event) => setVideoFile(event.target.files?.[0] ?? null)}
+            required
+          />
+          <p className="text-xs text-muted">
+            Upload `.mp4`/`.webm`/other browser-supported formats.
+          </p>
+        </label>
+
+        <label className="space-y-1">
+          <span className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.12em] text-muted sm:text-xs">
+            <ImageIcon className="h-4 w-4 text-accent" />
+            Thumbnail file (optional)
+          </span>
+          <input
+            ref={thumbnailInputRef}
+            type="file"
+            accept="image/*"
+            className="w-full rounded-xl border border-border/80 bg-surface px-3 py-2.5 text-sm text-ink file:mr-2 file:rounded-lg file:border file:border-border file:bg-panel file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-muted sm:file:mr-3 sm:file:text-sm"
+            onChange={(event) => setThumbnailFile(event.target.files?.[0] ?? null)}
+          />
+        </label>
+      </div>
+
+      <label className="block space-y-1">
+        <span className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.12em] text-muted sm:text-xs">
+          <Captions className="h-4 w-4 text-accent" />
+          Transcript lines (optional)
+        </span>
+        <textarea
+          className="min-h-40 w-full rounded-xl border border-border/80 bg-surface px-3 py-2.5 font-mono text-xs text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/25 sm:min-h-44"
+          value={form.transcriptLines}
+          onChange={(event) =>
+            setForm((prev) => ({ ...prev, transcriptLines: event.target.value }))
+          }
+          placeholder={'0|4.8|Hallo!\n4.8|9.5|Heute lernen wir...'}
+        />
+        <p className="text-xs text-muted">Format: one line per sentence as start|end|text</p>
+      </label>
+
+      <label className="block space-y-1">
+        <span className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.12em] text-muted sm:text-xs">
+          <KeyRound className="h-4 w-4 text-accent" />
+          Admin passcode
+        </span>
+        <input
+          type="password"
+          className="h-11 w-full rounded-xl border border-border/80 bg-surface px-3 text-base text-ink outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/25 sm:text-sm"
+          value={form.adminPasscode}
+          onChange={(event) =>
+            setForm((prev) => ({ ...prev, adminPasscode: event.target.value }))
+          }
+          required
+        />
+      </label>
+
+      <button
+        type="submit"
+        disabled={isLoading}
+        className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-accent bg-accent px-5 text-sm font-bold text-surface transition hover:-translate-y-0.5 hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto"
+      >
+        <UploadCloud className="h-4 w-4" />
+        {isLoading ? 'Uploading files...' : 'Upload Video'}
+      </button>
+
+      {message ? <p className="text-sm font-medium text-emerald-600">{message}</p> : null}
+      {error ? <p className="text-sm font-medium text-red-500">{error}</p> : null}
+    </form>
+  );
+}
