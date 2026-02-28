@@ -1,6 +1,6 @@
 'use client';
 
-import { Bookmark } from 'lucide-react';
+import { Bookmark, Minimize2 } from 'lucide-react';
 import ReactPlayer from 'react-player';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SyntheticEvent } from 'react';
@@ -736,6 +736,22 @@ ${sentence.text}`
               onProgress={({ playedSeconds: seconds }) => setPlayedSeconds(seconds)}
             />
           </div>
+          {isInteractiveFullscreen ? (
+            <button
+              type="button"
+              className="absolute right-3 top-3 z-40 inline-flex h-11 min-w-11 items-center justify-center gap-1 rounded-full border border-white/30 bg-black/60 px-3 text-white backdrop-blur-sm transition hover:bg-black/75"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                void toggleContainerFullscreen();
+              }}
+              aria-label="Exit fullscreen"
+              title="Exit fullscreen"
+            >
+              <Minimize2 className="h-4 w-4" />
+              <span className="hidden text-xs font-semibold sm:inline">Exit</span>
+            </button>
+          ) : null}
           {isInteractiveFullscreen && currentSentence ? (
             <FullscreenSubtitleOverlay
               sentence={currentSentence}
