@@ -40,6 +40,27 @@ export function AdminUploadForm() {
   const videoInputRef = useRef<HTMLInputElement>(null);
   const thumbnailInputRef = useRef<HTMLInputElement>(null);
 
+  const parseApiResponse = async <T,>(
+    response: Response
+  ): Promise<{ data: T | null; errorText: string | null }> => {
+    const contentType = response.headers.get('content-type') ?? '';
+
+    if (contentType.includes('application/json')) {
+      try {
+        const data = (await response.json()) as T;
+        return { data, errorText: null };
+      } catch {
+        return { data: null, errorText: 'Server returned invalid JSON.' };
+      }
+    }
+
+    const rawText = await response.text().catch(() => '');
+    return {
+      data: null,
+      errorText: rawText.trim() || `HTTP ${response.status} ${response.statusText}`
+    };
+  };
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
@@ -83,23 +104,31 @@ export function AdminUploadForm() {
         body: payload
       });
 
-      const result = (await response
-        .json()
-        .catch(() => ({ error: 'Invalid server response.' }))) as {
+      const parsed = await parseApiResponse<{
         ok?: boolean;
         id?: string;
         transcriptCount?: number;
         error?: string;
-      };
+      }>(response);
 
       if (!response.ok) {
-        setError(result.error ?? 'Upload failed.');
+        if (parsed.data?.error) {
+          setError(parsed.data.error);
+        } else {
+          setError(parsed.errorText ?? 'Upload failed.');
+        }
+        setIsLoading(false);
+        return;
+      }
+
+      if (!parsed.data) {
+        setError(parsed.errorText ?? 'Upload failed: response body missing.');
         setIsLoading(false);
         return;
       }
 
       setMessage(
-        `Video uploaded successfully. ID: ${result.id}. Transcript lines: ${result.transcriptCount ?? 0}`
+        `Video uploaded successfully. ID: ${parsed.data.id}. Transcript lines: ${parsed.data.transcriptCount ?? 0}`
       );
       setForm((previous) => ({
         ...INITIAL_FORM,

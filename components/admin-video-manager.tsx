@@ -1,7 +1,7 @@
 'use client';
 
 import { RefreshCcw, ShieldAlert, Trash2, Video } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 interface AdminVideoItem {
   id: string;
@@ -17,6 +17,27 @@ interface AdminVideoItem {
 
 const ADMIN_VIDEOS_UPDATED_EVENT = 'xlang:admin-videos-updated';
 
+async function parseApiResponse<T>(
+  response: Response
+): Promise<{ data: T | null; errorText: string | null }> {
+  const contentType = response.headers.get('content-type') ?? '';
+
+  if (contentType.includes('application/json')) {
+    try {
+      const data = (await response.json()) as T;
+      return { data, errorText: null };
+    } catch {
+      return { data: null, errorText: 'Server returned invalid JSON.' };
+    }
+  }
+
+  const rawText = await response.text().catch(() => '');
+  return {
+    data: null,
+    errorText: rawText.trim() || `HTTP ${response.status} ${response.statusText}`
+  };
+}
+
 export function AdminVideoManager() {
   const [videos, setVideos] = useState<AdminVideoItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -25,7 +46,7 @@ export function AdminVideoManager() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  const loadVideos = async () => {
+  const loadVideos = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
@@ -35,20 +56,22 @@ export function AdminVideoManager() {
         cache: 'no-store'
       });
 
-      const result = (await response
-        .json()
-        .catch(() => ({ error: 'Invalid server response.' }))) as {
+      const parsed = await parseApiResponse<{
         videos?: AdminVideoItem[];
         error?: string;
-      };
+      }>(response);
 
       if (!response.ok) {
-        setError(result.error ?? 'Failed to load videos.');
+        if (parsed.data?.error) {
+          setError(parsed.data.error);
+        } else {
+          setError(parsed.errorText ?? 'Failed to load videos.');
+        }
         setIsLoading(false);
         return;
       }
 
-      setVideos(Array.isArray(result.videos) ? result.videos : []);
+      setVideos(Array.isArray(parsed.data?.videos) ? parsed.data.videos : []);
     } catch (requestError) {
       const text =
         requestError instanceof Error ? requestError.message : 'Unexpected request error.';
@@ -56,7 +79,7 @@ export function AdminVideoManager() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     void loadVideos();
@@ -72,7 +95,7 @@ export function AdminVideoManager() {
         handleRefresh as EventListener
       );
     };
-  }, []);
+  }, [loadVideos]);
 
   const handleDelete = async (video: AdminVideoItem) => {
     if (!adminPasscode.trim()) {
@@ -101,15 +124,17 @@ export function AdminVideoManager() {
         })
       });
 
-      const result = (await response
-        .json()
-        .catch(() => ({ error: 'Invalid server response.' }))) as {
+      const parsed = await parseApiResponse<{
         ok?: boolean;
         error?: string;
-      };
+      }>(response);
 
       if (!response.ok) {
-        setError(result.error ?? 'Delete failed.');
+        if (parsed.data?.error) {
+          setError(parsed.data.error);
+        } else {
+          setError(parsed.errorText ?? 'Delete failed.');
+        }
         return;
       }
 
