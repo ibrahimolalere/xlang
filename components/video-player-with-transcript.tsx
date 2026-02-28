@@ -3,6 +3,7 @@
 import { Bookmark } from 'lucide-react';
 import ReactPlayer from 'react-player';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { SyntheticEvent } from 'react';
 
 import { FullscreenSubtitleOverlay } from '@/components/video-player/fullscreen-subtitle-overlay';
 import { PlaybackControls } from '@/components/video-player/playback-controls';
@@ -467,7 +468,7 @@ ${sentence.text}`
   };
 
   const handleWordClick = async (
-    event: React.MouseEvent<HTMLButtonElement>,
+    event: SyntheticEvent<HTMLButtonElement>,
     word: string,
     tokenKey: string
   ) => {
@@ -572,7 +573,7 @@ ${sentence.text}`
   };
 
   const handleSaveWordForLater = (
-    event: React.MouseEvent<HTMLButtonElement>,
+    event: SyntheticEvent<HTMLButtonElement>,
     params: { token: string; normalized: string; sentence: string }
   ) => {
     event.stopPropagation();

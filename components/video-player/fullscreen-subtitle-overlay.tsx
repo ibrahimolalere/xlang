@@ -1,7 +1,7 @@
 'use client';
 
 import { Bookmark } from 'lucide-react';
-import type { MouseEvent, RefObject, SyntheticEvent } from 'react';
+import type { RefObject, SyntheticEvent } from 'react';
 
 import { cn } from '@/lib/utils';
 import { normalizeWord, tokenizeSentence } from '@/lib/video/subtitle-utils';
@@ -18,12 +18,12 @@ interface FullscreenSubtitleOverlayProps {
   overlayRef: RefObject<HTMLDivElement>;
   onOverlayInteract: (event: SyntheticEvent) => void;
   onWordClick: (
-    event: MouseEvent<HTMLButtonElement>,
+    event: SyntheticEvent<HTMLButtonElement>,
     word: string,
     tokenKey: string
   ) => void;
   onSaveWord: (
-    event: MouseEvent<HTMLButtonElement>,
+    event: SyntheticEvent<HTMLButtonElement>,
     params: { token: string; normalized: string; sentence: string }
   ) => void;
 }
@@ -95,8 +95,10 @@ export function FullscreenSubtitleOverlay({
                   isWordActive ? 'bg-accent text-white' : 'text-white hover:bg-white/20'
                 )}
                 onTouchStart={onOverlayInteract}
-                onPointerDown={onOverlayInteract}
-                onClick={(event) => onWordClick(event, token, tokenKey)}
+                onPointerDown={(event) => {
+                  onOverlayInteract(event);
+                  onWordClick(event, token, tokenKey);
+                }}
                 type="button"
               >
                 {token}
@@ -117,15 +119,15 @@ export function FullscreenSubtitleOverlay({
                         ? 'border-warm bg-warm/15 text-warm'
                         : 'border-accent bg-accent/10 text-accent hover:bg-accent/20'
                     )}
-                    onClick={(event) =>
+                    onTouchStart={onOverlayInteract}
+                    onPointerDown={(event) => {
+                      onOverlayInteract(event);
                       onSaveWord(event, {
                         token,
                         normalized,
                         sentence: sentence.text
-                      })
-                    }
-                    onTouchStart={onOverlayInteract}
-                    onPointerDown={onOverlayInteract}
+                      });
+                    }}
                     disabled={loadingWordKey === tokenKey}
                     aria-label={isWordSaved ? 'Unsave word' : 'Save word'}
                     title={isWordSaved ? 'Unsave word' : 'Save word'}
