@@ -13,14 +13,14 @@ export function ThemeToggle() {
   }, []);
 
   if (!mounted) {
-    return <div className="h-10 w-10 rounded-xl border border-border/70 bg-panel" />;
+    return <div className="h-9 w-9 rounded-full border border-border/80 bg-panel" />;
   }
 
   const isDark = theme === 'dark';
 
   return (
     <button
-      className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-border/70 bg-panel text-ink transition hover:border-accent hover:bg-accent hover:text-surface"
+      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/80 bg-panel text-ink transition hover:border-accent/50 hover:bg-accent/10"
       onClick={() => setTheme(isDark ? 'light' : 'dark')}
       aria-label="Toggle dark mode"
       type="button"

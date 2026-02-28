@@ -6,3 +6,4 @@ node_modules
 .DS_Store
 *.log
 videoplayback.mp4
+test videos/

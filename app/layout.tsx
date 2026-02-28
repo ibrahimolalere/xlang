@@ -1,10 +1,17 @@
 import type { Metadata } from 'next';
-import { BookMarked, Shield } from 'lucide-react';
+import {
+  BookMarked,
+  CirclePlay,
+  GraduationCap,
+  Home,
+  Shield
+} from 'lucide-react';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 
-import { ThemeToggle } from '@/components/theme-toggle';
 import { Providers } from '@/components/providers';
+import { ThemeToggle } from '@/components/theme-toggle';
+import { LEVELS } from '@/lib/constants';
 
 import './globals.css';
 
@@ -22,39 +29,117 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className="font-sans antialiased">
         <Providers>
-          <header className="sticky top-0 z-30 border-b border-border/70 bg-surface/85 backdrop-blur-xl">
-            <div className="mx-auto max-w-7xl px-4 pb-3 pt-3 sm:px-6 sm:py-4">
-              <div className="flex items-center justify-between gap-3">
-                <Link
-                  href="/"
-                  className="rounded-xl px-2 py-1 font-[var(--font-heading)] text-2xl font-bold tracking-tight text-ink transition hover:bg-accent/10 sm:text-4xl"
-                >
-                  XLang
-                </Link>
-                <ThemeToggle />
+          <header className="sticky top-0 z-40 border-b border-border/80 bg-surface/95 backdrop-blur-xl">
+            <div className="mx-auto flex h-14 w-full max-w-[1600px] items-center gap-3 px-3 sm:px-6">
+              <Link
+                href="/"
+                className="inline-flex items-center gap-2 rounded-full px-2 py-1 text-xl font-bold tracking-tight text-ink transition hover:bg-panel sm:text-2xl"
+              >
+                <CirclePlay className="h-6 w-6 fill-accent text-accent" />
+                XLang
+              </Link>
+
+              <div className="hidden flex-1 justify-center md:flex">
+                <div className="flex h-10 w-full max-w-xl items-center rounded-full border border-border/80 bg-panel px-4 text-sm text-muted">
+                  Search levels, videos, vocabulary
+                </div>
               </div>
-              <div className="mt-3 flex items-center gap-2 overflow-x-auto pb-0.5 sm:mt-2 sm:justify-start sm:overflow-visible sm:pb-0">
+
+              <div className="ml-auto flex items-center gap-2">
                 <Link
                   href="/admin"
-                  className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg border border-border/70 bg-panel px-3 text-xs font-semibold text-muted transition hover:border-accent/60 hover:text-ink sm:h-9 sm:text-sm"
+                  className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border/80 bg-panel px-3 text-xs font-semibold text-muted transition hover:border-accent/50 hover:text-ink sm:text-sm"
                 >
                   <Shield className="h-4 w-4" />
-                  Admin
+                  <span className="hidden sm:inline">Admin</span>
                 </Link>
                 <Link
                   href="/saved"
-                  className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg border border-border/70 bg-panel px-3 text-xs font-semibold text-muted transition hover:border-accent/60 hover:text-ink sm:h-9 sm:text-sm"
+                  className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border/80 bg-panel px-3 text-xs font-semibold text-muted transition hover:border-accent/50 hover:text-ink sm:text-sm"
+                >
+                  <BookMarked className="h-4 w-4" />
+                  <span className="hidden sm:inline">Saved</span>
+                </Link>
+                <ThemeToggle />
+              </div>
+            </div>
+
+            <div className="mx-auto max-w-[1600px] px-3 pb-3 sm:hidden">
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                <Link
+                  href="/"
+                  className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-border/80 bg-panel px-3 text-xs font-semibold text-muted"
+                >
+                  <Home className="h-4 w-4" />
+                  Home
+                </Link>
+                <Link
+                  href="/saved"
+                  className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-border/80 bg-panel px-3 text-xs font-semibold text-muted"
                 >
                   <BookMarked className="h-4 w-4" />
                   Saved
                 </Link>
+                <Link
+                  href="/admin"
+                  className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-border/80 bg-panel px-3 text-xs font-semibold text-muted"
+                >
+                  <Shield className="h-4 w-4" />
+                  Admin
+                </Link>
               </div>
             </div>
-            <div className="h-0.5 bg-gradient-to-r from-transparent via-accent/80 to-transparent" />
           </header>
-          <main className="mx-auto max-w-7xl px-4 pb-10 pt-6 sm:px-6 sm:pb-12 sm:pt-10">
-            {children}
-          </main>
+
+          <div className="mx-auto flex w-full max-w-[1600px] gap-6 px-3 pb-10 pt-4 sm:px-6 sm:pb-12">
+            <aside className="sticky top-[4.5rem] hidden h-[calc(100dvh-5rem)] w-64 shrink-0 lg:block">
+              <nav className="h-full overflow-y-auto rounded-2xl border border-border/80 bg-panel p-3">
+                <div className="space-y-1.5">
+                  <Link
+                    href="/"
+                    className="inline-flex h-10 w-full items-center gap-2 rounded-xl px-3 text-sm font-semibold text-ink transition hover:bg-surface"
+                  >
+                    <Home className="h-4 w-4" />
+                    Home
+                  </Link>
+                  <Link
+                    href="/saved"
+                    className="inline-flex h-10 w-full items-center gap-2 rounded-xl px-3 text-sm font-semibold text-ink transition hover:bg-surface"
+                  >
+                    <BookMarked className="h-4 w-4" />
+                    Saved Words
+                  </Link>
+                  <Link
+                    href="/admin"
+                    className="inline-flex h-10 w-full items-center gap-2 rounded-xl px-3 text-sm font-semibold text-ink transition hover:bg-surface"
+                  >
+                    <Shield className="h-4 w-4" />
+                    Admin Studio
+                  </Link>
+                </div>
+
+                <div className="mt-5 border-t border-border/80 pt-4">
+                  <p className="mb-2 inline-flex items-center gap-1.5 px-3 text-[11px] font-bold uppercase tracking-[0.16em] text-muted">
+                    <GraduationCap className="h-3.5 w-3.5" />
+                    Levels
+                  </p>
+                  <div className="space-y-1">
+                    {LEVELS.map((level) => (
+                      <Link
+                        key={level}
+                        href={`/level/${level}`}
+                        className="inline-flex h-9 w-full items-center rounded-lg px-3 text-sm font-medium text-muted transition hover:bg-surface hover:text-ink"
+                      >
+                        {level}
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              </nav>
+            </aside>
+
+            <main className="min-w-0 flex-1">{children}</main>
+          </div>
         </Providers>
       </body>
     </html>

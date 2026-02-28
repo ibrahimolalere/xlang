@@ -39,19 +39,21 @@ export default async function VideoPage({ params }: VideoPageProps) {
     <section className="space-y-5 sm:space-y-6">
       <Link
         href={backHref}
-        className="inline-flex h-10 items-center gap-2 rounded-lg border border-border/70 bg-panel px-3 text-sm font-semibold text-accent transition hover:border-accent/60"
+        className="inline-flex h-10 items-center gap-2 rounded-full border border-border/80 bg-panel px-4 text-sm font-semibold text-muted transition hover:border-accent/60 hover:text-ink"
       >
         <ArrowLeft className="h-4 w-4" />
-        Back to level list
+        Back
       </Link>
 
-      <h1 className="inline-flex items-center gap-2 font-[var(--font-heading)] text-2xl font-bold tracking-tight text-ink sm:text-3xl md:text-5xl">
-        <PlayCircle className="h-7 w-7 text-accent" />
-        {video.title}
-      </h1>
-      <p className="max-w-3xl text-sm leading-relaxed text-muted sm:text-base">
-        {video.description}
-      </p>
+      <div className="rounded-2xl border border-border/80 bg-panel p-5 sm:p-6">
+        <h1 className="inline-flex items-center gap-2 font-[var(--font-heading)] text-2xl font-bold tracking-tight text-ink sm:text-3xl md:text-4xl">
+          <PlayCircle className="h-7 w-7 text-accent" />
+          {video.title}
+        </h1>
+        <p className="mt-2 max-w-3xl text-sm leading-relaxed text-muted sm:text-base">
+          {video.description}
+        </p>
+      </div>
 
       <VideoPlayerWithTranscript video={video} transcript={transcript} />
     </section>

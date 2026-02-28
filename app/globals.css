@@ -3,27 +3,25 @@
 @tailwind utilities;
 
 :root {
-  --font-sans:
-    "Avenir Next", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-  --font-heading:
-    "Avenir Next", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-sans: Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-heading: Roboto, "Helvetica Neue", Arial, sans-serif;
   --surface: 255 255 255;
-  --panel: 255 252 248;
-  --ink: 30 24 19;
-  --muted: 126 101 86;
-  --accent: 255 122 0;
-  --warm: 235 95 0;
-  --border: 248 210 184;
+  --panel: 248 248 248;
+  --ink: 15 15 15;
+  --muted: 96 96 96;
+  --accent: 255 138 0;
+  --warm: 245 124 0;
+  --border: 226 226 226;
 }
 
 .dark {
-  --surface: 255 250 244;
-  --panel: 255 246 236;
-  --ink: 36 27 20;
-  --muted: 126 96 74;
-  --accent: 255 122 0;
-  --warm: 235 95 0;
-  --border: 244 201 170;
+  --surface: 15 15 15;
+  --panel: 33 33 33;
+  --ink: 245 245 245;
+  --muted: 170 170 170;
+  --accent: 255 156 64;
+  --warm: 245 136 20;
+  --border: 60 60 60;
 }
 
 * {
@@ -38,12 +36,7 @@
 body {
   min-height: 100vh;
   font-family: var(--font-sans);
-  background: radial-gradient(
-      1200px 560px at 50% -12%,
-      rgb(255 221 189 / 0.48) 0%,
-      rgb(255 221 189 / 0) 58%
-    ),
-    linear-gradient(180deg, rgb(255 255 255) 0%, rgb(255 247 240) 55%, rgb(255 241 229) 100%);
+  background: rgb(var(--surface));
   color: rgb(var(--ink));
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -52,25 +45,32 @@ body {
 
 video::cue {
   color: #fff;
-  background: rgb(0 0 0 / 52%);
+  background: rgb(8 8 8 / 78%);
   font-size: clamp(24px, 3.1vw, 54px);
-  font-weight: 800;
-  line-height: 1.2;
-  text-shadow: 0 2px 8px rgb(0 0 0 / 75%);
+  font-weight: 700;
+  line-height: 1.24;
+  text-shadow: 0 1px 4px rgb(0 0 0 / 70%);
 }
 
-@media (max-width: 640px) {
-  body {
-    background: radial-gradient(
-        700px 360px at 50% -14%,
-        rgb(255 221 189 / 0.4) 0%,
-        rgb(255 221 189 / 0) 60%
-      ),
-      linear-gradient(
-        180deg,
-        rgb(255 255 255) 0%,
-        rgb(255 247 240) 52%,
-        rgb(255 241 229) 100%
-      );
-  }
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgb(var(--surface));
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--border));
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--muted) / 0.6);
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
 }

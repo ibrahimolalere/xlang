@@ -1,10 +1,19 @@
 'use client';
 
-import { Bookmark, Gauge, Maximize2, Minimize2 } from 'lucide-react';
+import { Bookmark } from 'lucide-react';
 import ReactPlayer from 'react-player';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { FullscreenSubtitleOverlay } from '@/components/video-player/fullscreen-subtitle-overlay';
+import { PlaybackControls } from '@/components/video-player/playback-controls';
 import { cn, formatSeconds, getPlayableVideoUrl } from '@/lib/utils';
+import {
+  findCurrentSentence,
+  formatVttTime,
+  normalizePhrase,
+  normalizeWord,
+  tokenizeSentence
+} from '@/lib/video/subtitle-utils';
 import { getSavedWords, toggleSavedWord } from '@/lib/vocabulary';
 import type { TranscriptSentence, Video } from '@/types/database';
 
@@ -13,57 +22,15 @@ interface VideoPlayerWithTranscriptProps {
   transcript: TranscriptSentence[];
 }
 
-const SPEEDS = [0.75, 1, 1.25, 1.5];
-
-function formatVttTime(seconds: number): string {
-  const totalMilliseconds = Math.max(0, Math.floor(seconds * 1000));
-  const hours = Math.floor(totalMilliseconds / 3_600_000);
-  const minutes = Math.floor((totalMilliseconds % 3_600_000) / 60_000);
-  const secs = Math.floor((totalMilliseconds % 60_000) / 1000);
-  const milliseconds = totalMilliseconds % 1000;
-
-  const hh = String(hours).padStart(2, '0');
-  const mm = String(minutes).padStart(2, '0');
-  const ss = String(secs).padStart(2, '0');
-  const mmm = String(milliseconds).padStart(3, '0');
-
-  return `${hh}:${mm}:${ss}.${mmm}`;
-}
-
-function normalizeWord(word: string): string {
-  return word
-    .toLowerCase()
-    .replace(/[^a-zA-ZäöüÄÖÜß]/g, '')
-    .replace(/[Ä]/g, 'ä')
-    .replace(/[Ö]/g, 'ö')
-    .replace(/[Ü]/g, 'ü')
-    .trim();
-}
-
-function normalizePhrase(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-zA-ZäöüÄÖÜß\s]/g, ' ')
-    .replace(/[Ä]/g, 'ä')
-    .replace(/[Ö]/g, 'ö')
-    .replace(/[Ü]/g, 'ü')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function tokenizeSentence(text: string): string[] {
-  return text
-    .split(/(\s+|[.,!?;:"(){}\[\]„“‚‘…—–-])/g)
-    .filter((token) => token.length > 0);
-}
-
 export function VideoPlayerWithTranscript({
   video,
   transcript
 }: VideoPlayerWithTranscriptProps) {
   const playerRef = useRef<ReactPlayer>(null);
   const playerViewportRef = useRef<HTMLDivElement>(null);
+  const fullscreenOverlayRef = useRef<HTMLDivElement>(null);
   const sentenceRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [isPlaying, setIsPlaying] = useState(true);
   const [playedSeconds, setPlayedSeconds] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [isPlayerReady, setIsPlayerReady] = useState(false);
@@ -88,6 +55,7 @@ export function VideoPlayerWithTranscript({
   const [loadingSentenceId, setLoadingSentenceId] = useState<string | null>(null);
   const [phraseTranslations, setPhraseTranslations] = useState<Record<string, string>>({});
   const [savedWordsSet, setSavedWordsSet] = useState<Set<string>>(new Set());
+  const [isPausedByWordTap, setIsPausedByWordTap] = useState(false);
 
   const getVideoElement = () =>
     playerRef.current?.getInternalPlayer?.() as
@@ -322,13 +290,10 @@ ${sentence.text}`
     };
   }, [isPlayerReady, video.video_url]);
 
-  const currentSentence = useMemo(() => {
-    // Match current playback position to a transcript time window.
-    return transcript.find(
-      (sentence) =>
-        playedSeconds >= sentence.start_time && playedSeconds < sentence.end_time
-    );
-  }, [playedSeconds, transcript]);
+  const currentSentence = useMemo(
+    () => findCurrentSentence(transcript, playedSeconds),
+    [playedSeconds, transcript]
+  );
   const currentSentenceId = currentSentence?.id;
   const isPortraitVideo = videoOrientation === 'portrait';
   const isSquareVideo = videoOrientation === 'square';
@@ -355,6 +320,46 @@ ${sentence.text}`
       setActiveWordKey(null);
     }
   }, [fullscreenMode]);
+
+  useEffect(() => {
+    if (fullscreenMode === 'container') {
+      return;
+    }
+
+    if (isPausedByWordTap) {
+      setIsPausedByWordTap(false);
+      setIsPlaying(true);
+    }
+  }, [fullscreenMode, isPausedByWordTap]);
+
+  useEffect(() => {
+    if (fullscreenMode !== 'container' || !activeWordKey) {
+      return;
+    }
+
+    const handleOutsidePress = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) {
+        return;
+      }
+
+      if (fullscreenOverlayRef.current?.contains(target)) {
+        return;
+      }
+
+      setActiveWordKey(null);
+      if (isPausedByWordTap) {
+        setIsPausedByWordTap(false);
+        setIsPlaying(true);
+      }
+    };
+
+    document.addEventListener('pointerdown', handleOutsidePress, true);
+
+    return () => {
+      document.removeEventListener('pointerdown', handleOutsidePress, true);
+    };
+  }, [activeWordKey, fullscreenMode, isPausedByWordTap]);
 
   useEffect(() => {
     // Reset interactive subtitle selection when sentence changes to avoid stale DOM anchors.
@@ -465,10 +470,18 @@ ${sentence.text}`
 
     if (activeWordKey === tokenKey) {
       setActiveWordKey(null);
+      if (fullscreenMode === 'container' && isPausedByWordTap) {
+        setIsPausedByWordTap(false);
+        setIsPlaying(true);
+      }
       return;
     }
 
     setActiveWordKey(tokenKey);
+    if (fullscreenMode === 'container' && isPlaying) {
+      setIsPlaying(false);
+      setIsPausedByWordTap(true);
+    }
 
     const normalized = normalizeWord(word);
     if (!normalized || wordTranslations[normalized]) {
@@ -667,12 +680,12 @@ ${sentence.text}`
   };
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1.3fr_1fr] lg:gap-6">
+    <div className="grid gap-4 xl:grid-cols-[1.45fr_0.9fr] xl:gap-6">
       <div className="space-y-3 sm:space-y-4">
         <div
           ref={playerViewportRef}
           className={cn(
-            'relative overflow-hidden rounded-xl border border-border/80 bg-panel sm:rounded-2xl',
+            'relative overflow-hidden rounded-xl border border-border/80 bg-black sm:rounded-2xl',
             fullscreenMode === 'container' &&
               'h-[100dvh] w-[100dvw] rounded-none border-0 bg-black'
           )}
@@ -699,173 +712,51 @@ ${sentence.text}`
               width="100%"
               height="100%"
               controls
-              playing
+              playing={isPlaying}
               muted
               playsinline
               playbackRate={playbackRate}
               url={getPlayableVideoUrl(video.video_url)}
               onReady={() => setIsPlayerReady(true)}
+              onPlay={() => {
+                setIsPlaying(true);
+                setIsPausedByWordTap(false);
+              }}
+              onPause={() => {
+                setIsPlaying(false);
+              }}
               config={playerConfig}
               onProgress={({ playedSeconds: seconds }) => setPlayedSeconds(seconds)}
             />
           </div>
           {fullscreenMode === 'container' && currentSentence ? (
-            <div
-              key={currentSentence.id}
-              className={cn(
-                'pointer-events-auto absolute left-1/2 z-10 -translate-x-1/2 px-4 text-center sm:px-6',
-                isPortraitVideo
-                  ? 'bottom-28 w-[min(92%,620px)]'
-                  : 'bottom-20 w-[min(94%,1100px)] md:bottom-24'
-              )}
-              onTouchStart={stopOverlayEvent}
-              onPointerDown={stopOverlayEvent}
-              onClick={stopOverlayEvent}
-            >
-              <div
-                className={cn(
-                  'inline rounded-md bg-black/58 px-4 py-3 font-black leading-[1.18] text-white',
-                  isPortraitVideo
-                    ? 'text-[clamp(1.25rem,4.2vw,2.35rem)]'
-                    : 'text-[clamp(1.75rem,3.4vw,3.3rem)]'
-                )}
-              >
-                {tokenizeSentence(currentSentence.text).map((token, index) => {
-                  const normalized = normalizeWord(token);
-                  const isWord = normalized.length > 0;
-                  const tokenKey = `fullscreen-${currentSentence.id}-${index}`;
-                  const isWordActive = activeWordKey === tokenKey;
-                  const translation = wordTranslations[normalized];
-                  const isWordSaved = savedWordsSet.has(`${video.id}:${normalized}`);
-
-                  if (!isWord) {
-                    return (
-                      <span key={tokenKey} className="whitespace-pre">
-                        {token}
-                      </span>
-                    );
-                  }
-
-                  return (
-                    <span key={tokenKey} className="relative inline-block">
-                      <button
-                        className={cn(
-                          'inline rounded-md px-1.5 py-0.5 transition',
-                          isWordActive
-                            ? 'bg-[#ff7a00] text-white'
-                            : 'text-white hover:bg-white/20'
-                        )}
-                        onClick={(event) => handleWordClick(event, token, tokenKey)}
-                        type="button"
-                      >
-                        {token}
-                      </button>
-                      {isWordActive ? (
-                        <div className="absolute bottom-full left-1/2 z-20 mb-2 flex -translate-x-1/2 flex-col gap-1 whitespace-nowrap rounded-xl border border-black/10 bg-white px-4 py-2 text-left">
-                          <span className="text-lg font-semibold text-[#ff7a00]">{token}</span>
-                          <span className="text-xl font-semibold text-slate-900">
-                            {loadingWordKey === tokenKey
-                              ? '...'
-                              : (translation ?? 'translation unavailable')}
-                          </span>
-                          <button
-                            type="button"
-                            className={cn(
-                              'inline-flex w-fit items-center justify-center rounded-md border p-1.5 transition',
-                              isWordSaved
-                                ? 'border-warm bg-warm/15 text-warm'
-                                : 'border-accent bg-accent/10 text-accent hover:bg-accent/20'
-                            )}
-                            onClick={(event) =>
-                              handleSaveWordForLater(event, {
-                                token,
-                                normalized,
-                                sentence: currentSentence.text
-                              })
-                            }
-                            disabled={loadingWordKey === tokenKey}
-                            aria-label={isWordSaved ? 'Unsave word' : 'Save word'}
-                            title={isWordSaved ? 'Unsave word' : 'Save word'}
-                          >
-                            <Bookmark
-                              className={cn(
-                                'h-4 w-4',
-                                isWordSaved ? 'fill-current' : ''
-                              )}
-                            />
-                          </button>
-                        </div>
-                      ) : null}
-                    </span>
-                  );
-                })}
-              </div>
-            </div>
+            <FullscreenSubtitleOverlay
+              sentence={currentSentence}
+              isPortraitVideo={isPortraitVideo}
+              activeWordKey={activeWordKey}
+              loadingWordKey={loadingWordKey}
+              wordTranslations={wordTranslations}
+              savedWordsSet={savedWordsSet}
+              videoId={video.id}
+              overlayRef={fullscreenOverlayRef}
+              onOverlayInteract={stopOverlayEvent}
+              onWordClick={handleWordClick}
+              onSaveWord={handleSaveWordForLater}
+            />
           ) : null}
         </div>
 
-        <div className="rounded-2xl border border-border/80 bg-panel p-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="inline-flex h-9 items-center gap-2 rounded-lg bg-surface px-3 text-sm font-semibold text-muted">
-              <Gauge className="h-4 w-4 text-accent" />
-              <span>Playback Speed</span>
-            </div>
-            <button
-              className={cn(
-                'inline-flex h-10 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-bold transition',
-                fullscreenMode === 'none'
-                  ? 'border-border/80 bg-surface text-muted hover:border-accent hover:text-accent'
-                  : 'border-accent bg-accent/12 text-accent'
-              )}
-              onClick={() => {
-                void toggleContainerFullscreen();
-              }}
-              type="button"
-              aria-label={
-                fullscreenMode === 'none'
-                  ? 'Enter interactive fullscreen'
-                  : 'Exit interactive fullscreen'
-              }
-              title={
-                fullscreenMode === 'none'
-                  ? 'Enter interactive fullscreen'
-                  : 'Exit interactive fullscreen'
-              }
-            >
-              {fullscreenMode === 'none' ? (
-                <Maximize2 className="h-4 w-4" />
-              ) : (
-                <Minimize2 className="h-4 w-4" />
-              )}
-              <span className="hidden sm:inline">
-                {fullscreenMode === 'none' ? 'Fullscreen' : 'Exit'}
-              </span>
-            </button>
-          </div>
-
-          <div className="mt-3 grid grid-cols-4 gap-2">
-            {SPEEDS.map((speed) => (
-              <button
-                key={speed}
-                className={cn(
-                  'h-10 rounded-xl border text-sm font-bold transition',
-                  speed === playbackRate
-                    ? 'border-accent bg-accent text-white'
-                    : 'border-border/80 bg-surface text-muted hover:border-accent hover:text-accent'
-                )}
-                onClick={() => setPlaybackRate(speed)}
-                type="button"
-                aria-label={`Set speed to ${speed}x`}
-                aria-pressed={speed === playbackRate}
-              >
-                {speed}x
-              </button>
-            ))}
-          </div>
-        </div>
+        <PlaybackControls
+          playbackRate={playbackRate}
+          fullscreenMode={fullscreenMode}
+          onSetPlaybackRate={setPlaybackRate}
+          onToggleFullscreen={() => {
+            void toggleContainerFullscreen();
+          }}
+        />
       </div>
 
-      <aside className="rounded-xl border border-border/80 bg-panel p-4 sm:rounded-2xl sm:p-5 lg:max-h-[70vh] lg:overflow-y-auto">
+      <aside className="rounded-2xl border border-border/80 bg-panel p-4 sm:p-5 xl:max-h-[78vh] xl:overflow-y-auto">
         <h2 className="mb-4 text-2xl font-bold text-ink">Transcript</h2>
         <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted sm:text-xs">
           Click a word or highlight a phrase to translate.

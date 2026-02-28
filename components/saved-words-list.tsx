@@ -101,7 +101,7 @@ export function SavedWordsList() {
         <button
           type="button"
           onClick={handleClear}
-          className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-border/80 bg-panel text-ink transition hover:border-accent hover:bg-accent/10"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-border/80 bg-panel text-ink transition hover:border-accent hover:bg-accent/10"
           aria-label="Clear all saved words"
           title="Clear all saved words"
         >
@@ -121,7 +121,7 @@ export function SavedWordsList() {
               <button
                 type="button"
                 onClick={() => toggleReveal(item.id)}
-                className="w-full rounded-xl border border-border/80 bg-surface p-4 text-left transition hover:border-accent/70 sm:p-5"
+                className="w-full rounded-xl border border-border/80 bg-surface p-4 text-left transition hover:border-accent/60 sm:p-5"
                 aria-label={`Toggle meaning for ${item.word}`}
               >
                 <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-muted">
@@ -142,7 +142,7 @@ export function SavedWordsList() {
               <div className="mt-3 flex flex-wrap items-center gap-3">
                 <Link
                   href={`/video/${item.videoId}`}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-accent/50 text-accent transition hover:bg-accent/10"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-accent/50 text-accent transition hover:bg-accent/10"
                   aria-label="Open source video"
                   title="Open source video"
                 >
@@ -151,7 +151,7 @@ export function SavedWordsList() {
                 <button
                   type="button"
                   onClick={() => handleRemove(item.id)}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-border/80 text-ink transition hover:border-accent"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-border/80 text-ink transition hover:border-accent"
                   aria-label="Remove saved word"
                   title="Remove saved word"
                 >

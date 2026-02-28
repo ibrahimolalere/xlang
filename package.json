@@ -6,7 +6,8 @@
     "dev": "rm -rf .next-dev && next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "smoke:ui": "bash scripts/smoke-ui.sh"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.52.0",

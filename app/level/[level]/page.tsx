@@ -33,19 +33,21 @@ export default async function LevelPage({ params }: LevelPageProps) {
     <section className="space-y-5 sm:space-y-6">
       <Link
         href="/"
-        className="inline-flex h-10 items-center gap-2 rounded-lg border border-border/70 bg-panel px-3 text-sm font-semibold text-accent transition hover:border-accent/60"
+        className="inline-flex h-10 items-center gap-2 rounded-full border border-border/80 bg-panel px-4 text-sm font-semibold text-muted transition hover:border-accent/60 hover:text-ink"
       >
         <ArrowLeft className="h-4 w-4" />
-        Back to levels
+        Back
       </Link>
 
-      <h1 className="inline-flex items-center gap-2 font-[var(--font-heading)] text-3xl font-bold tracking-tight text-ink sm:text-4xl md:text-5xl">
-        <Clapperboard className="h-7 w-7 text-accent" />
-        {level} Videos
-      </h1>
-      <p className="text-sm text-muted sm:text-base">
-        {videos.length} {videos.length === 1 ? 'video' : 'videos'} available.
-      </p>
+      <div className="rounded-2xl border border-border/80 bg-panel p-5 sm:p-6">
+        <h1 className="inline-flex items-center gap-2 font-[var(--font-heading)] text-3xl font-bold tracking-tight text-ink sm:text-4xl">
+          <Clapperboard className="h-7 w-7 text-accent" />
+          {level} Playlist
+        </h1>
+        <p className="mt-2 text-sm text-muted sm:text-base">
+          {videos.length} {videos.length === 1 ? 'video' : 'videos'} available.
+        </p>
+      </div>
 
       {videos.length === 0 ? (
         <div className="rounded-2xl border border-border/80 bg-panel p-6 sm:p-8">

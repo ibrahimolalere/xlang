@@ -53,12 +53,24 @@ app/
   layout.tsx
   page.tsx
 components/
+  video-player/
+    fullscreen-subtitle-overlay.tsx
+    playback-controls.tsx
   level-card.tsx
   providers.tsx
   theme-toggle.tsx
   video-card.tsx
   video-player-with-transcript.tsx
 lib/
+  server/admin-video/
+    index.ts
+    levels.ts
+    storage.ts
+    transcript.ts
+    youtube.ts
+    types.ts
+  video/
+    subtitle-utils.ts
   constants.ts
   utils.ts
   supabase/server.ts
@@ -66,6 +78,8 @@ types/
   database.ts
 db/
   supabase.sql
+scripts/
+  smoke-ui.sh
 ```
 
 ## Notes
@@ -74,5 +88,7 @@ db/
 - Includes playback speed control, dark mode toggle, and Save Vocabulary UI.
 - Admin upload page: `/admin` (requires passcode configured in `ADMIN_UPLOAD_PASSCODE`).
 - Admin uploads local files to Supabase Storage and inserts metadata/transcripts through server API.
+- Admin upload also supports YouTube link submissions and attempts timed-caption import when available.
 - Run `db/supabase.sql` after pulling changes to ensure storage bucket/policies exist.
 - If `OPENAI_API_KEY` is set, uploads without manual transcript lines are auto-transcribed.
+- Run `npm run smoke:ui` for a route-level UI smoke test before deployment.
