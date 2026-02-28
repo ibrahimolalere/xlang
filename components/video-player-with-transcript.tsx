@@ -30,6 +30,7 @@ export function VideoPlayerWithTranscript({
   const playerViewportRef = useRef<HTMLDivElement>(null);
   const fullscreenOverlayRef = useRef<HTMLDivElement>(null);
   const sentenceRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [isSimulatedFullscreen, setIsSimulatedFullscreen] = useState(false);
   const [isPlaying, setIsPlaying] = useState(true);
   const [playedSeconds, setPlayedSeconds] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1);
@@ -295,8 +296,22 @@ ${sentence.text}`
     [playedSeconds, transcript]
   );
   const currentSentenceId = currentSentence?.id;
+  const isInteractiveFullscreen = fullscreenMode === 'container' || isSimulatedFullscreen;
   const isPortraitVideo = videoOrientation === 'portrait';
   const isSquareVideo = videoOrientation === 'square';
+
+  useEffect(() => {
+    if (!isSimulatedFullscreen) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isSimulatedFullscreen]);
 
   useEffect(() => {
     if (!currentSentenceId) {
@@ -316,13 +331,13 @@ ${sentence.text}`
   }, [currentSentenceId]);
 
   useEffect(() => {
-    if (fullscreenMode === 'none') {
+    if (!isInteractiveFullscreen) {
       setActiveWordKey(null);
     }
-  }, [fullscreenMode]);
+  }, [isInteractiveFullscreen]);
 
   useEffect(() => {
-    if (fullscreenMode === 'container') {
+    if (isInteractiveFullscreen) {
       return;
     }
 
@@ -330,10 +345,10 @@ ${sentence.text}`
       setIsPausedByWordTap(false);
       setIsPlaying(true);
     }
-  }, [fullscreenMode, isPausedByWordTap]);
+  }, [isInteractiveFullscreen, isPausedByWordTap]);
 
   useEffect(() => {
-    if (fullscreenMode !== 'container' || !activeWordKey) {
+    if (!isInteractiveFullscreen || !activeWordKey) {
       return;
     }
 
@@ -359,7 +374,7 @@ ${sentence.text}`
     return () => {
       document.removeEventListener('pointerdown', handleOutsidePress, true);
     };
-  }, [activeWordKey, fullscreenMode, isPausedByWordTap]);
+  }, [activeWordKey, isInteractiveFullscreen, isPausedByWordTap]);
 
   useEffect(() => {
     // Reset interactive subtitle selection when sentence changes to avoid stale DOM anchors.
@@ -410,7 +425,6 @@ ${sentence.text}`
     const container = playerViewportRef.current as
       | (HTMLDivElement & { webkitRequestFullscreen?: () => Promise<void> | void })
       | null;
-    const videoElement = getVideoElement();
     const doc = document as Document & {
       webkitExitFullscreen?: () => Promise<void> | void;
     };
@@ -420,6 +434,11 @@ ${sentence.text}`
     }
 
     try {
+      if (isSimulatedFullscreen) {
+        setIsSimulatedFullscreen(false);
+        return;
+      }
+
       if (fullscreenMode === 'none') {
         if (container.requestFullscreen) {
           await container.requestFullscreen();
@@ -429,18 +448,8 @@ ${sentence.text}`
           await container.webkitRequestFullscreen();
           return;
         }
-        if (videoElement?.requestFullscreen) {
-          await videoElement.requestFullscreen();
-          return;
-        }
-        if (videoElement?.webkitRequestFullscreen) {
-          await videoElement.webkitRequestFullscreen();
-          return;
-        }
-        if (videoElement?.webkitEnterFullscreen) {
-          videoElement.webkitEnterFullscreen();
-          setFullscreenMode('internal');
-        }
+        // iOS fallback: app-controlled fullscreen to keep subtitle overlay interactive.
+        setIsSimulatedFullscreen(true);
         return;
       }
 
@@ -451,9 +460,6 @@ ${sentence.text}`
       if (doc.webkitExitFullscreen) {
         await doc.webkitExitFullscreen();
         return;
-      }
-      if (videoElement?.webkitExitFullscreen) {
-        videoElement.webkitExitFullscreen();
       }
     } catch {
       // Prevent fullscreen API rejections from crashing the video page.
@@ -470,7 +476,7 @@ ${sentence.text}`
 
     if (activeWordKey === tokenKey) {
       setActiveWordKey(null);
-      if (fullscreenMode === 'container' && isPausedByWordTap) {
+      if (isInteractiveFullscreen && isPausedByWordTap) {
         setIsPausedByWordTap(false);
         setIsPlaying(true);
       }
@@ -478,7 +484,7 @@ ${sentence.text}`
     }
 
     setActiveWordKey(tokenKey);
-    if (fullscreenMode === 'container' && isPlaying) {
+    if (isInteractiveFullscreen && isPlaying) {
       setIsPlaying(false);
       setIsPausedByWordTap(true);
     }
@@ -686,23 +692,23 @@ ${sentence.text}`
           ref={playerViewportRef}
           className={cn(
             'relative overflow-hidden rounded-xl border border-border/80 bg-black sm:rounded-2xl',
-            fullscreenMode === 'container' &&
-              'h-[100dvh] w-[100dvw] rounded-none border-0 bg-black'
+            isInteractiveFullscreen && 'h-[100dvh] w-[100dvw] rounded-none border-0 bg-black',
+            isSimulatedFullscreen && 'fixed inset-0 z-[100] bg-black'
           )}
         >
           <div
             className={cn(
               'bg-black',
-              fullscreenMode === 'none' &&
+              !isInteractiveFullscreen &&
                 (isPortraitVideo
                   ? 'mx-auto w-full max-w-[25rem]'
                   : isSquareVideo
                     ? 'mx-auto w-full max-w-[40rem]'
                     : 'w-full'),
-              fullscreenMode === 'container' && 'flex h-full w-full items-center'
+              isInteractiveFullscreen && 'flex h-full w-full items-center'
             )}
             style={
-              fullscreenMode === 'none'
+              !isInteractiveFullscreen
                 ? { aspectRatio: String(videoAspectRatio) }
                 : undefined
             }
@@ -729,7 +735,7 @@ ${sentence.text}`
               onProgress={({ playedSeconds: seconds }) => setPlayedSeconds(seconds)}
             />
           </div>
-          {fullscreenMode === 'container' && currentSentence ? (
+          {isInteractiveFullscreen && currentSentence ? (
             <FullscreenSubtitleOverlay
               sentence={currentSentence}
               isPortraitVideo={isPortraitVideo}
@@ -748,7 +754,7 @@ ${sentence.text}`
 
         <PlaybackControls
           playbackRate={playbackRate}
-          fullscreenMode={fullscreenMode}
+          fullscreenMode={isInteractiveFullscreen ? 'container' : fullscreenMode}
           onSetPlaybackRate={setPlaybackRate}
           onToggleFullscreen={() => {
             void toggleContainerFullscreen();
