@@ -21,11 +21,11 @@ interface FullscreenSubtitleOverlayProps {
     event: SyntheticEvent<HTMLButtonElement>,
     word: string,
     tokenKey: string
-  ) => void;
+  ) => void | Promise<void>;
   onSaveWord: (
     event: SyntheticEvent<HTMLButtonElement>,
     params: { token: string; normalized: string; sentence: string }
-  ) => void;
+  ) => void | Promise<void>;
 }
 
 export function FullscreenSubtitleOverlay({
@@ -97,7 +97,7 @@ export function FullscreenSubtitleOverlay({
                 onTouchStart={onOverlayInteract}
                 onPointerDown={(event) => {
                   onOverlayInteract(event);
-                  onWordClick(event, token, tokenKey);
+                  void onWordClick(event, token, tokenKey);
                 }}
                 type="button"
               >
@@ -122,7 +122,7 @@ export function FullscreenSubtitleOverlay({
                     onTouchStart={onOverlayInteract}
                     onPointerDown={(event) => {
                       onOverlayInteract(event);
-                      onSaveWord(event, {
+                      void onSaveWord(event, {
                         token,
                         normalized,
                         sentence: sentence.text

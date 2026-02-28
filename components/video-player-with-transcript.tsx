@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SyntheticEvent } from 'react';
 
 import { FullscreenSubtitleOverlay } from '@/components/video-player/fullscreen-subtitle-overlay';
+import { LEARNER_PROFILE_UPDATED_EVENT, getLearnerProfile } from '@/lib/learner';
 import { PlaybackControls } from '@/components/video-player/playback-controls';
 import { cn, formatSeconds, getPlayableVideoUrl } from '@/lib/utils';
 import {
@@ -15,7 +16,12 @@ import {
   normalizeWord,
   tokenizeSentence
 } from '@/lib/video/subtitle-utils';
-import { getSavedWords, toggleSavedWord } from '@/lib/vocabulary';
+import {
+  SAVED_WORDS_UPDATED_EVENT,
+  getSavedWords,
+  syncSavedWordsFromServer,
+  toggleSavedWord
+} from '@/lib/vocabulary';
 import type { TranscriptSentence, Video } from '@/types/database';
 
 interface VideoPlayerWithTranscriptProps {
@@ -57,6 +63,7 @@ export function VideoPlayerWithTranscript({
   const [loadingSentenceId, setLoadingSentenceId] = useState<string | null>(null);
   const [phraseTranslations, setPhraseTranslations] = useState<Record<string, string>>({});
   const [savedWordsSet, setSavedWordsSet] = useState<Set<string>>(new Set());
+  const [learnerKey, setLearnerKey] = useState('');
   const [isPausedByWordTap, setIsPausedByWordTap] = useState(false);
 
   const getVideoElement = () =>
@@ -69,8 +76,57 @@ export function VideoPlayerWithTranscript({
       | null;
 
   useEffect(() => {
-    const saved = getSavedWords();
-    setSavedWordsSet(new Set(saved.map((word) => `${word.videoId}:${word.normalizedWord}`)));
+    const refreshFromStorage = () => {
+      const saved = getSavedWords();
+      setSavedWordsSet(new Set(saved.map((word) => `${word.videoId}:${word.normalizedWord}`)));
+    };
+
+    const profile = getLearnerProfile();
+    setLearnerKey(profile.learnerKey);
+
+    void syncSavedWordsFromServer(profile.learnerKey)
+      .then(() => {
+        refreshFromStorage();
+      })
+      .catch(() => {
+        refreshFromStorage();
+      });
+
+    const handleProfileUpdate = () => {
+      const nextProfile = getLearnerProfile();
+      setLearnerKey(nextProfile.learnerKey);
+      void syncSavedWordsFromServer(nextProfile.learnerKey)
+        .then(() => {
+          refreshFromStorage();
+        })
+        .catch(() => {
+          refreshFromStorage();
+        });
+    };
+
+    const handleSavedWordsUpdated = () => {
+      refreshFromStorage();
+    };
+
+    window.addEventListener(
+      LEARNER_PROFILE_UPDATED_EVENT,
+      handleProfileUpdate as EventListener
+    );
+    window.addEventListener(
+      SAVED_WORDS_UPDATED_EVENT,
+      handleSavedWordsUpdated as EventListener
+    );
+
+    return () => {
+      window.removeEventListener(
+        LEARNER_PROFILE_UPDATED_EVENT,
+        handleProfileUpdate as EventListener
+      );
+      window.removeEventListener(
+        SAVED_WORDS_UPDATED_EVENT,
+        handleSavedWordsUpdated as EventListener
+      );
+    };
   }, []);
 
   const subtitleTrackUrl = useMemo(() => {
@@ -574,19 +630,20 @@ ${sentence.text}`
     }
   };
 
-  const handleSaveWordForLater = (
+  const handleSaveWordForLater = async (
     event: SyntheticEvent<HTMLButtonElement>,
     params: { token: string; normalized: string; sentence: string }
   ) => {
     event.stopPropagation();
     const { token, normalized, sentence } = params;
-    if (!normalized) {
+    if (!normalized || !learnerKey) {
       return;
     }
 
     const translation = wordTranslations[normalized] ?? 'translation unavailable';
     const key = `${video.id}:${normalized}`;
-    const result = toggleSavedWord({
+    const result = await toggleSavedWord({
+      learnerKey,
       word: token,
       normalizedWord: normalized,
       translation,
@@ -606,17 +663,21 @@ ${sentence.text}`
     });
   };
 
-  const handleTogglePhraseSave = (
+  const handleTogglePhraseSave = async (
     event: React.MouseEvent<HTMLButtonElement>,
     phrase: NonNullable<typeof activePhrase>
   ) => {
     event.stopPropagation();
+    if (!learnerKey) {
+      return;
+    }
 
     const translation =
       phraseTranslations[phrase.normalized] ?? 'translation unavailable';
 
     const key = `${video.id}:${phrase.normalized}`;
-    const result = toggleSavedWord({
+    const result = await toggleSavedWord({
+      learnerKey,
       word: phrase.text,
       normalizedWord: phrase.normalized,
       translation,
@@ -641,6 +702,9 @@ ${sentence.text}`
     sentence: TranscriptSentence
   ) => {
     event.stopPropagation();
+    if (!learnerKey) {
+      return;
+    }
 
     const normalized = normalizePhrase(sentence.text);
     if (!normalized) {
@@ -668,7 +732,8 @@ ${sentence.text}`
       }));
     }
 
-    const result = toggleSavedWord({
+    const result = await toggleSavedWord({
+      learnerKey,
       word: sentence.text,
       normalizedWord: normalized,
       translation: translation ?? 'translation unavailable',
@@ -862,7 +927,9 @@ ${sentence.text}`
                             ? 'border-warm bg-warm/15 text-warm'
                             : 'border-accent bg-accent/10 text-accent hover:bg-accent/20'
                         )}
-                        onClick={(event) => handleTogglePhraseSave(event, activePhrase)}
+                        onClick={(event) => {
+                          void handleTogglePhraseSave(event, activePhrase);
+                        }}
                         disabled={loadingPhraseKey === activePhrase.phraseKey}
                         aria-label={isPhraseSaved ? 'Unsave phrase' : 'Save phrase'}
                         title={isPhraseSaved ? 'Unsave phrase' : 'Save phrase'}
@@ -916,13 +983,13 @@ ${sentence.text}`
                                     ? 'border-warm bg-warm/15 text-warm'
                                     : 'border-accent bg-accent/10 text-accent hover:bg-accent/20'
                                 )}
-                                onClick={(event) =>
-                                  handleSaveWordForLater(event, {
+                                onClick={(event) => {
+                                  void handleSaveWordForLater(event, {
                                     token,
                                     normalized,
                                     sentence: sentence.text
-                                  })
-                                }
+                                  });
+                                }}
                                 disabled={loadingWordKey === tokenKey}
                                 aria-label={isWordSaved ? 'Unsave word' : 'Save word'}
                                 title={isWordSaved ? 'Unsave word' : 'Save word'}

@@ -51,63 +51,139 @@ export function getSavedWords(): SavedWord[] {
   return readStorage();
 }
 
-export function saveWord(
-  payload: Omit<SavedWord, 'id' | 'savedAt'>
-): { saved: boolean; savedWord?: SavedWord } {
-  const existing = readStorage();
-  const duplicate = existing.find(
-    (word) =>
-      word.normalizedWord === payload.normalizedWord && word.videoId === payload.videoId
-  );
-
-  if (duplicate) {
-    return { saved: false, savedWord: duplicate };
-  }
-
-  const next: SavedWord = {
-    ...payload,
-    id: `${payload.videoId}-${payload.normalizedWord}-${Date.now()}`,
-    savedAt: new Date().toISOString()
-  };
-
-  writeStorage([next, ...existing]);
-  return { saved: true, savedWord: next };
+export function setSavedWords(words: SavedWord[]) {
+  writeStorage(words);
 }
 
-export function removeSavedWord(id: string) {
-  const existing = readStorage();
-  const next = existing.filter((word) => word.id !== id);
+export function removeSavedWordLocalById(id: string) {
+  const next = readStorage().filter((word) => word.id !== id);
   writeStorage(next);
   return next;
 }
 
-export function clearSavedWords() {
+export function clearSavedWordsLocal() {
   writeStorage([]);
 }
 
-export function toggleSavedWord(
-  payload: Omit<SavedWord, 'id' | 'savedAt'>
-): { saved: boolean; words: SavedWord[] } {
-  const existing = readStorage();
-  const existingIndex = existing.findIndex(
-    (word) =>
-      word.normalizedWord === payload.normalizedWord && word.videoId === payload.videoId
+export async function syncSavedWordsFromServer(learnerKey: string) {
+  if (!learnerKey) {
+    return readStorage();
+  }
+
+  const response = await fetch(
+    `/api/learner/saved-words?learnerKey=${encodeURIComponent(learnerKey)}`,
+    {
+      method: 'GET',
+      cache: 'no-store'
+    }
   );
 
-  if (existingIndex >= 0) {
-    const next = [...existing];
-    next.splice(existingIndex, 1);
+  if (!response.ok) {
+    return readStorage();
+  }
+
+  const result = (await response.json().catch(() => ({ words: [] }))) as {
+    words?: SavedWord[];
+  };
+
+  const words = Array.isArray(result.words) ? result.words : [];
+  writeStorage(words);
+  return words;
+}
+
+interface ToggleSavedWordInput {
+  learnerKey: string;
+  word: string;
+  normalizedWord: string;
+  translation: string;
+  sentence: string;
+  videoId: string;
+  videoTitle: string;
+}
+
+export async function toggleSavedWord(params: ToggleSavedWordInput) {
+  const existing = readStorage();
+  const keyMatch = (item: SavedWord) =>
+    item.videoId === params.videoId && item.normalizedWord === params.normalizedWord;
+  const duplicate = existing.find(keyMatch);
+
+  if (duplicate) {
+    try {
+      await fetch(
+        `/api/learner/saved-words?learnerKey=${encodeURIComponent(params.learnerKey)}&videoId=${encodeURIComponent(params.videoId)}&normalizedWord=${encodeURIComponent(params.normalizedWord)}`,
+        { method: 'DELETE' }
+      );
+    } catch {
+      // Keep local unsave behavior even if network call fails.
+    }
+
+    const next = existing.filter((item) => !keyMatch(item));
     writeStorage(next);
     return { saved: false, words: next };
   }
 
-  const nextWord: SavedWord = {
-    ...payload,
-    id: `${payload.videoId}-${payload.normalizedWord}-${Date.now()}`,
-    savedAt: new Date().toISOString()
-  };
+  let savedWord: SavedWord | null = null;
+  try {
+    const response = await fetch('/api/learner/saved-words', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params)
+    });
 
-  const next = [nextWord, ...existing];
+    const result = (await response
+      .json()
+      .catch(() => ({ word: null }))) as { word?: SavedWord | null };
+    savedWord = result.word ?? null;
+  } catch {
+    // Fall back to local save.
+  }
+
+  const resolvedSavedWord =
+    savedWord ??
+    ({
+      id: `${params.videoId}-${params.normalizedWord}-${Date.now()}`,
+      word: params.word,
+      normalizedWord: params.normalizedWord,
+      translation: params.translation,
+      sentence: params.sentence,
+      videoId: params.videoId,
+      videoTitle: params.videoTitle,
+      savedAt: new Date().toISOString()
+    } satisfies SavedWord);
+
+  const next = [resolvedSavedWord, ...existing.filter((item) => !keyMatch(item))];
   writeStorage(next);
   return { saved: true, words: next };
+}
+
+export async function markSavedWordAsLearned(params: { learnerKey: string; id: string }) {
+  try {
+    await fetch('/api/learner/saved-words/learned', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params)
+    });
+  } catch {
+    // Keep local progression even when the network request fails.
+  }
+
+  return removeSavedWordLocalById(params.id);
+}
+
+export async function removeSavedWord(params: {
+  learnerKey: string;
+  id: string;
+  videoId: string;
+  normalizedWord: string;
+}) {
+  try {
+    await fetch(
+      `/api/learner/saved-words?learnerKey=${encodeURIComponent(params.learnerKey)}&videoId=${encodeURIComponent(params.videoId)}&normalizedWord=${encodeURIComponent(params.normalizedWord)}`,
+      { method: 'DELETE' }
+    );
+  } catch {
+    // Keep local remove behavior when network call fails.
+  }
+
+  return removeSavedWordLocalById(params.id);
 }
