@@ -45,10 +45,13 @@ export function FullscreenSubtitleOverlay({
     <div
       ref={overlayRef}
       className={cn(
-        'pointer-events-auto absolute left-1/2 z-10 -translate-x-1/2 px-4 text-center sm:px-6',
-        isPortraitVideo ? 'bottom-20 w-[min(92%,620px)]' : 'bottom-14 w-[min(94%,1100px)] md:bottom-16'
+        'pointer-events-auto absolute left-1/2 z-10 -translate-x-1/2 select-none px-4 text-center touch-none sm:px-6',
+        isPortraitVideo
+          ? 'bottom-12 w-[min(92%,620px)]'
+          : 'bottom-8 w-[min(94%,1100px)] md:bottom-10'
       )}
       onTouchStart={onOverlayInteract}
+      onTouchEnd={onOverlayInteract}
       onPointerDown={onOverlayInteract}
       onClick={onOverlayInteract}
     >
@@ -91,13 +94,15 @@ export function FullscreenSubtitleOverlay({
                   'inline rounded-md px-1.5 py-0.5 transition',
                   isWordActive ? 'bg-accent text-white' : 'text-white hover:bg-white/20'
                 )}
+                onTouchStart={onOverlayInteract}
+                onPointerDown={onOverlayInteract}
                 onClick={(event) => onWordClick(event, token, tokenKey)}
                 type="button"
               >
                 {token}
               </button>
               {isWordActive ? (
-                <div className="absolute bottom-full left-1/2 z-20 mb-2 flex -translate-x-1/2 flex-col gap-1 whitespace-nowrap rounded-xl border border-black/10 bg-white px-4 py-2 text-left">
+                <div className="absolute left-1/2 top-full z-20 mt-3 flex -translate-x-1/2 flex-col gap-1 whitespace-nowrap rounded-xl border border-black/10 bg-white px-4 py-2 text-left shadow-lg shadow-black/25">
                   <span className="text-lg font-semibold text-accent">{token}</span>
                   <span className="text-xl font-semibold text-slate-900">
                     {loadingWordKey === tokenKey
@@ -119,6 +124,8 @@ export function FullscreenSubtitleOverlay({
                         sentence: sentence.text
                       })
                     }
+                    onTouchStart={onOverlayInteract}
+                    onPointerDown={onOverlayInteract}
                     disabled={loadingWordKey === tokenKey}
                     aria-label={isWordSaved ? 'Unsave word' : 'Save word'}
                     title={isWordSaved ? 'Unsave word' : 'Save word'}
