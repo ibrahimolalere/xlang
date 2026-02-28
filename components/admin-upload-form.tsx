@@ -15,6 +15,7 @@ import {
 import { FormEvent, useRef, useState } from 'react';
 
 import { LEVELS } from '@/lib/constants';
+import { createSupabaseBrowserClient } from '@/lib/supabase/browser';
 import type { LevelName } from '@/types/database';
 
 const INITIAL_FORM = {
@@ -28,6 +29,7 @@ const INITIAL_FORM = {
   adminPasscode: ''
 };
 const ADMIN_VIDEOS_UPDATED_EVENT = 'xlang:admin-videos-updated';
+const MAX_VIDEO_FILE_BYTES = 20 * 1024 * 1024;
 
 export function AdminUploadForm() {
   const [form, setForm] = useState(INITIAL_FORM);
@@ -61,6 +63,55 @@ export function AdminUploadForm() {
     };
   };
 
+  const uploadFileWithSignedUrl = async (params: {
+    file: File;
+    kind: 'video' | 'thumbnail';
+  }) => {
+    const signedResponse = await fetch('/api/admin/videos/signed-upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        adminPasscode: form.adminPasscode,
+        level: form.level,
+        fileName: params.file.name,
+        fileType: params.file.type,
+        fileSize: params.file.size,
+        kind: params.kind
+      })
+    });
+
+    const signedParsed = await parseApiResponse<{
+      ok?: boolean;
+      bucket?: string;
+      path?: string;
+      token?: string;
+      publicUrl?: string;
+      error?: string;
+    }>(signedResponse);
+
+    if (!signedResponse.ok || !signedParsed.data?.bucket || !signedParsed.data.path || !signedParsed.data.token || !signedParsed.data.publicUrl) {
+      throw new Error(
+        signedParsed.data?.error ??
+          signedParsed.errorText ??
+          'Failed to initialize direct upload.'
+      );
+    }
+
+    const supabase = createSupabaseBrowserClient();
+    const { error: uploadError } = await supabase.storage
+      .from(signedParsed.data.bucket)
+      .uploadToSignedUrl(signedParsed.data.path, signedParsed.data.token, params.file, {
+        contentType: params.file.type || 'application/octet-stream',
+        cacheControl: '3600'
+      });
+
+    if (uploadError) {
+      throw new Error(`File upload failed: ${uploadError.message}`);
+    }
+
+    return signedParsed.data.publicUrl;
+  };
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
@@ -74,6 +125,12 @@ export function AdminUploadForm() {
       return;
     }
 
+    if (form.sourceType === 'local' && videoFile && videoFile.size > MAX_VIDEO_FILE_BYTES) {
+      setError('Video is too large. Maximum allowed size is 20 MB.');
+      setIsLoading(false);
+      return;
+    }
+
     if (form.sourceType === 'youtube' && !form.youtubeUrl.trim()) {
       setError('Please provide a YouTube link.');
       setIsLoading(false);
@@ -81,23 +138,34 @@ export function AdminUploadForm() {
     }
 
     try {
+      let uploadedVideoUrl = '';
+      let uploadedThumbnailUrl = '';
+
+      if (form.sourceType === 'local' && videoFile) {
+        uploadedVideoUrl = await uploadFileWithSignedUrl({
+          file: videoFile,
+          kind: 'video'
+        });
+      }
+
+      if (thumbnailFile) {
+        uploadedThumbnailUrl = await uploadFileWithSignedUrl({
+          file: thumbnailFile,
+          kind: 'thumbnail'
+        });
+      }
+
       const payload = new FormData();
       payload.set('level', form.level);
       payload.set('sourceType', form.sourceType);
       payload.set('youtubeUrl', form.youtubeUrl);
+      payload.set('uploadedVideoUrl', uploadedVideoUrl);
+      payload.set('uploadedThumbnailUrl', uploadedThumbnailUrl);
       payload.set('title', form.title);
       payload.set('description', form.description);
       payload.set('duration', form.duration);
       payload.set('transcriptLines', form.transcriptLines);
       payload.set('adminPasscode', form.adminPasscode);
-
-      if (form.sourceType === 'local' && videoFile) {
-        payload.set('videoFile', videoFile);
-      }
-
-      if (thumbnailFile) {
-        payload.set('thumbnailFile', thumbnailFile);
-      }
 
       const response = await fetch('/api/admin/videos', {
         method: 'POST',
@@ -288,7 +356,7 @@ export function AdminUploadForm() {
               required={form.sourceType === 'local'}
             />
             <p className="text-xs text-muted">
-              Upload `.mp4`/`.webm`/other browser-supported formats.
+              Upload `.mp4`/`.webm`/other browser-supported formats. Max 20 MB.
             </p>
           </label>
         ) : (

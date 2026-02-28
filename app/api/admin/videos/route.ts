@@ -26,6 +26,8 @@ interface ParsedVideoForm {
   transcriptLines: string;
   sourceType: VideoSourceType;
   youtubeUrlInput: string;
+  uploadedVideoUrlInput: string;
+  uploadedThumbnailUrlInput: string;
   level: LevelName;
   videoFile: FormDataEntryValue | null;
   thumbnailFile: FormDataEntryValue | null;
@@ -126,6 +128,8 @@ function parseVideoFormData(formData: FormData): ParsedVideoForm {
     transcriptLines: String(formData.get('transcriptLines') ?? '').trim(),
     sourceType: sourceTypeRaw === 'youtube' ? 'youtube' : 'local',
     youtubeUrlInput: String(formData.get('youtubeUrl') ?? '').trim(),
+    uploadedVideoUrlInput: String(formData.get('uploadedVideoUrl') ?? '').trim(),
+    uploadedThumbnailUrlInput: String(formData.get('uploadedThumbnailUrl') ?? '').trim(),
     level: String(formData.get('level') ?? '')
       .trim()
       .toUpperCase() as LevelName,
@@ -155,6 +159,7 @@ export async function POST(request: Request) {
     }
 
     const isYouTubeSource = input.sourceType === 'youtube';
+    const localVideoFile = input.videoFile instanceof File ? input.videoFile : null;
     const normalizedYouTubeUrl = isYouTubeSource
       ? normalizeYouTubeUrl(input.youtubeUrlInput)
       : null;
@@ -167,11 +172,17 @@ export async function POST(request: Request) {
         );
       }
     } else {
-      if (!(input.videoFile instanceof File)) {
-        return NextResponse.json({ error: 'Video file is required.' }, { status: 400 });
+      const hasUploadedVideoUrl = input.uploadedVideoUrlInput.length > 0;
+      const hasVideoFile = localVideoFile instanceof File;
+
+      if (!hasUploadedVideoUrl && !hasVideoFile) {
+        return NextResponse.json(
+          { error: 'Video file upload is required.' },
+          { status: 400 }
+        );
       }
 
-      if (!input.videoFile.type.startsWith('video/')) {
+      if (localVideoFile && !localVideoFile.type.startsWith('video/')) {
         return NextResponse.json(
           { error: 'Uploaded video must be a valid video file.' },
           { status: 400 }
@@ -187,9 +198,9 @@ export async function POST(request: Request) {
         } catch (error) {
           console.error('YouTube caption import failed:', error);
         }
-      } else if (input.videoFile instanceof File) {
+      } else if (localVideoFile) {
         try {
-          transcripts = await autoTranscribeVideo(input.videoFile);
+          transcripts = await autoTranscribeVideo(localVideoFile);
         } catch (error) {
           console.error('Auto transcription failed:', error);
         }
@@ -202,17 +213,31 @@ export async function POST(request: Request) {
     const videosBucket = process.env.SUPABASE_VIDEOS_BUCKET || 'videos';
     const thumbnailsBucket = process.env.SUPABASE_THUMBNAILS_BUCKET || videosBucket;
 
+    const uploadedLocalVideoUrl =
+      input.uploadedVideoUrlInput ||
+      (localVideoFile
+        ? await uploadFileToBucket({
+            supabase,
+            bucket: videosBucket,
+            folder: `${input.level.toLowerCase()}/videos`,
+            file: localVideoFile
+          })
+        : '');
+
+    if (!isYouTubeSource && !uploadedLocalVideoUrl) {
+      return NextResponse.json(
+        { error: 'Video upload URL could not be resolved.' },
+        { status: 400 }
+      );
+    }
+
     const videoUrl = isYouTubeSource
       ? (normalizedYouTubeUrl as string)
-      : await uploadFileToBucket({
-          supabase,
-          bucket: videosBucket,
-          folder: `${input.level.toLowerCase()}/videos`,
-          file: input.videoFile as File
-        });
+      : uploadedLocalVideoUrl;
 
     let thumbnailUrl =
-      (isYouTubeSource ? getYouTubeThumbnailUrl(videoUrl) : null) ?? FALLBACK_THUMBNAIL;
+      input.uploadedThumbnailUrlInput ||
+      ((isYouTubeSource ? getYouTubeThumbnailUrl(videoUrl) : null) ?? FALLBACK_THUMBNAIL);
 
     if (input.thumbnailFile instanceof File && input.thumbnailFile.size > 0) {
       if (!input.thumbnailFile.type.startsWith('image/')) {
