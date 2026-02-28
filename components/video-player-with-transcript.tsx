@@ -93,8 +93,10 @@ ${sentence.text}`
 
   const playerConfig = useMemo(() => {
     const baseAttributes = {
-      controlsList: 'nofullscreen',
+      controlsList: 'nofullscreen noremoteplayback nodownload noplaybackrate',
       disablePictureInPicture: true,
+      disableRemotePlayback: true,
+      'x-webkit-airplay': 'deny',
       style: {
         width: '100%',
         height: '100%',
@@ -739,7 +741,7 @@ ${sentence.text}`
           {isInteractiveFullscreen ? (
             <button
               type="button"
-              className="absolute right-3 top-3 z-40 inline-flex h-11 min-w-11 items-center justify-center gap-1 rounded-full border border-white/30 bg-black/60 px-3 text-white backdrop-blur-sm transition hover:bg-black/75"
+              className="absolute left-1/2 top-3 z-40 inline-flex h-11 min-w-11 -translate-x-1/2 items-center justify-center gap-1 rounded-full border border-white/30 bg-black/60 px-3 text-white backdrop-blur-sm transition hover:bg-black/75"
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
