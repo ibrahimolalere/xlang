@@ -31,6 +31,88 @@ interface ParsedVideoForm {
   thumbnailFile: FormDataEntryValue | null;
 }
 
+interface DeleteVideoPayload {
+  id: string;
+  adminPasscode: string;
+}
+
+function getExpectedPasscode() {
+  const expectedPasscode = process.env.ADMIN_UPLOAD_PASSCODE;
+  if (!expectedPasscode) {
+    throw new Error('Admin passcode is not configured on the server.');
+  }
+  return expectedPasscode;
+}
+
+function hasValidPasscode(passcode: string) {
+  const expectedPasscode = getExpectedPasscode();
+  return !!passcode && passcode === expectedPasscode;
+}
+
+function getLevelName(levels: unknown): LevelName | null {
+  if (!levels) {
+    return null;
+  }
+
+  if (Array.isArray(levels)) {
+    const first = levels[0] as { name?: string } | undefined;
+    if (!first?.name) {
+      return null;
+    }
+    return first.name as LevelName;
+  }
+
+  const single = levels as { name?: string };
+  if (!single.name) {
+    return null;
+  }
+  return single.name as LevelName;
+}
+
+function extractStorageObjectPath(params: { fileUrl: string; bucket: string }) {
+  const { fileUrl, bucket } = params;
+
+  try {
+    const url = new URL(fileUrl);
+    const marker = `/storage/v1/object/public/${bucket}/`;
+    const pathIndex = url.pathname.indexOf(marker);
+    if (pathIndex < 0) {
+      return null;
+    }
+
+    const encodedPath = url.pathname.slice(pathIndex + marker.length);
+    if (!encodedPath) {
+      return null;
+    }
+
+    return decodeURIComponent(encodedPath);
+  } catch {
+    return null;
+  }
+}
+
+async function removeStorageObjectIfOwned(params: {
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  bucket: string;
+  fileUrl: string;
+}) {
+  const path = extractStorageObjectPath({
+    fileUrl: params.fileUrl,
+    bucket: params.bucket
+  });
+
+  if (!path) {
+    return;
+  }
+
+  const { error } = await params.supabase.storage.from(params.bucket).remove([path]);
+  if (error) {
+    console.error(
+      `Storage cleanup failed for ${params.bucket}/${path}: ${error.message}`
+    );
+  }
+}
+
 function parseVideoFormData(formData: FormData): ParsedVideoForm {
   const sourceTypeRaw = String(formData.get('sourceType') ?? 'local')
     .trim()
@@ -57,15 +139,7 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const input = parseVideoFormData(formData);
 
-    const expectedPasscode = process.env.ADMIN_UPLOAD_PASSCODE;
-    if (!expectedPasscode) {
-      return NextResponse.json(
-        { error: 'Admin passcode is not configured on the server.' },
-        { status: 500 }
-      );
-    }
-
-    if (!input.adminPasscode || input.adminPasscode !== expectedPasscode) {
+    if (!hasValidPasscode(input.adminPasscode)) {
       return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 });
     }
 
@@ -208,6 +282,119 @@ export async function POST(request: Request) {
       transcriptCount: transcripts.length,
       sourceType: input.sourceType
     });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unexpected error.';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function GET() {
+  try {
+    const supabase = createSupabaseAdminClient();
+    const { data, error } = await supabase
+      .from('videos')
+      .select(
+        'id, title, description, duration, video_url, thumbnail_url, created_at, level_id, levels(name)'
+      )
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      return NextResponse.json(
+        { error: `Failed to load videos: ${error.message}` },
+        { status: 500 }
+      );
+    }
+
+    const videos = (data ?? []).map((row) => {
+      const level = getLevelName(row.levels);
+      const sourceType = row.video_url.includes('youtube.com') || row.video_url.includes('youtu.be')
+        ? 'youtube'
+        : 'local';
+
+      return {
+        id: row.id,
+        title: row.title,
+        description: row.description,
+        duration: row.duration,
+        video_url: row.video_url,
+        thumbnail_url: row.thumbnail_url,
+        created_at: row.created_at,
+        level: level ?? 'A1',
+        sourceType
+      };
+    });
+
+    return NextResponse.json({ videos });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unexpected error.';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const body = (await request.json()) as Partial<DeleteVideoPayload>;
+    const id = String(body.id ?? '').trim();
+    const adminPasscode = String(body.adminPasscode ?? '').trim();
+
+    if (!id) {
+      return NextResponse.json({ error: 'Video id is required.' }, { status: 400 });
+    }
+
+    if (!hasValidPasscode(adminPasscode)) {
+      return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 });
+    }
+
+    const supabase = createSupabaseAdminClient();
+    const { data: existingVideo, error: existingVideoError } = await supabase
+      .from('videos')
+      .select('id, video_url, thumbnail_url, levels(name)')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (existingVideoError) {
+      return NextResponse.json(
+        { error: `Failed to query video: ${existingVideoError.message}` },
+        { status: 500 }
+      );
+    }
+
+    if (!existingVideo) {
+      return NextResponse.json({ error: 'Video not found.' }, { status: 404 });
+    }
+
+    const { error: deleteError } = await supabase.from('videos').delete().eq('id', id);
+    if (deleteError) {
+      return NextResponse.json(
+        { error: `Failed to delete video: ${deleteError.message}` },
+        { status: 500 }
+      );
+    }
+
+    const videosBucket = process.env.SUPABASE_VIDEOS_BUCKET || 'videos';
+    const thumbnailsBucket = process.env.SUPABASE_THUMBNAILS_BUCKET || videosBucket;
+
+    await removeStorageObjectIfOwned({
+      supabase,
+      bucket: videosBucket,
+      fileUrl: existingVideo.video_url
+    });
+
+    await removeStorageObjectIfOwned({
+      supabase,
+      bucket: thumbnailsBucket,
+      fileUrl: existingVideo.thumbnail_url
+    });
+
+    const levelName = getLevelName(existingVideo.levels);
+    revalidatePath('/');
+    revalidatePath('/admin');
+    revalidatePath(`/video/${id}`);
+    if (levelName) {
+      revalidatePath(`/level/${levelName}`);
+    }
+
+    return NextResponse.json({ ok: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unexpected error.';
     return NextResponse.json({ error: message }, { status: 500 });

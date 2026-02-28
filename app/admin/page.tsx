@@ -1,3 +1,4 @@
+import { AdminVideoManager } from '@/components/admin-video-manager';
 import { AdminUploadForm } from '@/components/admin-upload-form';
 import { Shield } from 'lucide-react';
 
@@ -17,6 +18,7 @@ export default function AdminPage() {
         </p>
       </div>
       <AdminUploadForm />
+      <AdminVideoManager />
     </section>
   );
 }

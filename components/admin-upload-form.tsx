@@ -27,6 +27,7 @@ const INITIAL_FORM = {
   transcriptLines: '',
   adminPasscode: ''
 };
+const ADMIN_VIDEOS_UPDATED_EVENT = 'xlang:admin-videos-updated';
 
 export function AdminUploadForm() {
   const [form, setForm] = useState(INITIAL_FORM);
@@ -116,6 +117,8 @@ export function AdminUploadForm() {
       if (thumbnailInputRef.current) {
         thumbnailInputRef.current.value = '';
       }
+
+      window.dispatchEvent(new Event(ADMIN_VIDEOS_UPDATED_EVENT));
     } catch (submitError) {
       const text =
         submitError instanceof Error ? submitError.message : 'Unexpected upload error.';
