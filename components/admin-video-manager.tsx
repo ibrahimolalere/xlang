@@ -1,6 +1,6 @@
 'use client';
 
-import { RefreshCcw, ShieldAlert, Trash2, Video } from 'lucide-react';
+import { Captions, RefreshCcw, ShieldAlert, Trash2, Video } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
 interface AdminVideoItem {
@@ -42,6 +42,7 @@ export function AdminVideoManager() {
   const [videos, setVideos] = useState<AdminVideoItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
+  const [isGeneratingId, setIsGeneratingId] = useState<string | null>(null);
   const [adminPasscode, setAdminPasscode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -150,6 +151,60 @@ export function AdminVideoManager() {
     }
   };
 
+  const handleGenerateTranscript = async (video: AdminVideoItem) => {
+    if (!adminPasscode.trim()) {
+      setError('Enter admin passcode to generate transcript.');
+      return;
+    }
+
+    setIsGeneratingId(video.id);
+    setError(null);
+    setMessage(null);
+
+    try {
+      const response = await fetch('/api/admin/videos', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: video.id,
+          adminPasscode
+        })
+      });
+
+      const parsed = await parseApiResponse<{
+        ok?: boolean;
+        skipped?: boolean;
+        transcriptCount?: number;
+        error?: string;
+      }>(response);
+
+      if (!response.ok) {
+        if (parsed.data?.error) {
+          setError(parsed.data.error);
+        } else {
+          setError(parsed.errorText ?? 'Transcript generation failed.');
+        }
+        return;
+      }
+
+      const count = parsed.data?.transcriptCount ?? 0;
+      if (parsed.data?.skipped) {
+        setMessage(`Transcript already exists for "${video.title}" (${count} lines).`);
+      } else {
+        setMessage(`Generated transcript for "${video.title}" (${count} lines).`);
+      }
+      window.dispatchEvent(new Event(ADMIN_VIDEOS_UPDATED_EVENT));
+    } catch (requestError) {
+      const text =
+        requestError instanceof Error
+          ? requestError.message
+          : 'Unexpected transcript generation error.';
+      setError(text);
+    } finally {
+      setIsGeneratingId(null);
+    }
+  };
+
   return (
     <section className="space-y-4 rounded-2xl border border-border/80 bg-panel p-4 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -223,9 +278,22 @@ export function AdminVideoManager() {
                 <button
                   type="button"
                   onClick={() => {
+                    void handleGenerateTranscript(video);
+                  }}
+                  disabled={isGeneratingId === video.id}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-border/80 text-ink transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-60"
+                  aria-label={`Generate transcript for ${video.title}`}
+                  title={`Generate transcript for ${video.title}`}
+                >
+                  <Captions className="h-4 w-4" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
                     void handleDelete(video);
                   }}
-                  disabled={isDeletingId === video.id}
+                  disabled={isDeletingId === video.id || isGeneratingId === video.id}
                   className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-red-300 text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
                   aria-label={`Delete ${video.title}`}
                   title={`Delete ${video.title}`}

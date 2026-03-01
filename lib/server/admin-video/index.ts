@@ -1,6 +1,10 @@
 export { resolveLevelId } from './levels';
 export { FALLBACK_THUMBNAIL, uploadFileToBucket } from './storage';
-export { autoTranscribeVideo, parseTranscriptLines } from './transcript';
+export {
+  autoTranscribeVideo,
+  autoTranscribeVideoFromUrl,
+  parseTranscriptLines
+} from './transcript';
 export {
   autoTranscribeYouTubeVideo,
   getYouTubeThumbnailUrl,

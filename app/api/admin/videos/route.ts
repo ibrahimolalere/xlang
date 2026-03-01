@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { LEVELS } from '@/lib/constants';
 import {
   autoTranscribeVideo,
+  autoTranscribeVideoFromUrl,
   autoTranscribeYouTubeVideo,
   FALLBACK_THUMBNAIL,
   getYouTubeThumbnailUrl,
@@ -34,6 +35,11 @@ interface ParsedVideoForm {
 }
 
 interface DeleteVideoPayload {
+  id: string;
+  adminPasscode: string;
+}
+
+interface GenerateTranscriptPayload {
   id: string;
   adminPasscode: string;
 }
@@ -69,6 +75,10 @@ function getLevelName(levels: unknown): LevelName | null {
     return null;
   }
   return single.name as LevelName;
+}
+
+function isYouTubeVideoUrl(url: string) {
+  return url.includes('youtube.com') || url.includes('youtu.be');
 }
 
 function extractStorageObjectPath(params: { fileUrl: string; bucket: string }) {
@@ -235,6 +245,14 @@ export async function POST(request: Request) {
       ? (normalizedYouTubeUrl as string)
       : uploadedLocalVideoUrl;
 
+    if (!isYouTubeSource && transcripts.length === 0 && videoUrl) {
+      try {
+        transcripts = await autoTranscribeVideoFromUrl(videoUrl);
+      } catch (error) {
+        console.error('Remote auto transcription failed:', error);
+      }
+    }
+
     let thumbnailUrl =
       input.uploadedThumbnailUrlInput ||
       ((isYouTubeSource ? getYouTubeThumbnailUrl(videoUrl) : null) ?? FALLBACK_THUMBNAIL);
@@ -306,6 +324,108 @@ export async function POST(request: Request) {
       id: videoData.id,
       transcriptCount: transcripts.length,
       sourceType: input.sourceType
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unexpected error.';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const body = (await request.json()) as Partial<GenerateTranscriptPayload>;
+    const id = String(body.id ?? '').trim();
+    const adminPasscode = String(body.adminPasscode ?? '').trim();
+
+    if (!id) {
+      return NextResponse.json({ error: 'Video id is required.' }, { status: 400 });
+    }
+
+    if (!hasValidPasscode(adminPasscode)) {
+      return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 });
+    }
+
+    const supabase = createSupabaseAdminClient();
+    const { data: existingVideo, error: existingVideoError } = await supabase
+      .from('videos')
+      .select('id, video_url, levels(name)')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (existingVideoError) {
+      return NextResponse.json(
+        { error: `Failed to query video: ${existingVideoError.message}` },
+        { status: 500 }
+      );
+    }
+
+    if (!existingVideo) {
+      return NextResponse.json({ error: 'Video not found.' }, { status: 404 });
+    }
+
+    const { count: existingTranscriptCount, error: transcriptCountError } = await supabase
+      .from('transcripts')
+      .select('*', { count: 'exact', head: true })
+      .eq('video_id', id);
+
+    if (transcriptCountError) {
+      return NextResponse.json(
+        { error: `Failed to check transcript status: ${transcriptCountError.message}` },
+        { status: 500 }
+      );
+    }
+
+    if ((existingTranscriptCount ?? 0) > 0) {
+      return NextResponse.json({
+        ok: true,
+        skipped: true,
+        transcriptCount: existingTranscriptCount ?? 0
+      });
+    }
+
+    const generatedTranscripts = isYouTubeVideoUrl(existingVideo.video_url)
+      ? await autoTranscribeYouTubeVideo(existingVideo.video_url)
+      : await autoTranscribeVideoFromUrl(existingVideo.video_url);
+
+    if (!generatedTranscripts.length) {
+      return NextResponse.json(
+        {
+          error:
+            'No transcript could be generated automatically for this video. Add transcript lines manually.',
+          transcriptCount: 0
+        },
+        { status: 422 }
+      );
+    }
+
+    const transcriptRows = generatedTranscripts.map((line) => ({
+      video_id: id,
+      start_time: line.start_time,
+      end_time: line.end_time,
+      text: line.text
+    }));
+
+    const { error: transcriptInsertError } = await supabase
+      .from('transcripts')
+      .insert(transcriptRows);
+
+    if (transcriptInsertError) {
+      return NextResponse.json(
+        { error: `Failed to insert generated transcript: ${transcriptInsertError.message}` },
+        { status: 500 }
+      );
+    }
+
+    const levelName = getLevelName(existingVideo.levels);
+    revalidatePath('/admin');
+    revalidatePath(`/video/${id}`);
+    if (levelName) {
+      revalidatePath(`/level/${levelName}`);
+    }
+
+    return NextResponse.json({
+      ok: true,
+      transcriptCount: generatedTranscripts.length
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unexpected error.';
