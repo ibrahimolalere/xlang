@@ -201,6 +201,7 @@ export async function POST(request: Request) {
     }
 
     let transcripts = parseTranscriptLines(input.transcriptLines);
+    const hasManualTranscript = transcripts.length > 0;
     if (transcripts.length === 0) {
       if (isYouTubeSource && normalizedYouTubeUrl) {
         try {
@@ -244,6 +245,9 @@ export async function POST(request: Request) {
     const videoUrl = isYouTubeSource
       ? (normalizedYouTubeUrl as string)
       : uploadedLocalVideoUrl;
+    const initialThumbnailUrl =
+      input.uploadedThumbnailUrlInput ||
+      ((isYouTubeSource ? getYouTubeThumbnailUrl(videoUrl) : null) ?? FALLBACK_THUMBNAIL);
 
     if (!isYouTubeSource && transcripts.length === 0 && videoUrl) {
       try {
@@ -253,9 +257,33 @@ export async function POST(request: Request) {
       }
     }
 
-    let thumbnailUrl =
-      input.uploadedThumbnailUrlInput ||
-      ((isYouTubeSource ? getYouTubeThumbnailUrl(videoUrl) : null) ?? FALLBACK_THUMBNAIL);
+    if (!hasManualTranscript && transcripts.length === 0) {
+      if (!isYouTubeSource && videoUrl) {
+        await removeStorageObjectIfOwned({
+          supabase,
+          bucket: videosBucket,
+          fileUrl: videoUrl
+        });
+      }
+
+      if (initialThumbnailUrl) {
+        await removeStorageObjectIfOwned({
+          supabase,
+          bucket: thumbnailsBucket,
+          fileUrl: initialThumbnailUrl
+        });
+      }
+
+      return NextResponse.json(
+        {
+          error:
+            'Transcript extraction from audio failed. Upload canceled. Add manual transcript lines or verify OPENAI_API_KEY is configured.'
+        },
+        { status: 422 }
+      );
+    }
+
+    let thumbnailUrl = initialThumbnailUrl;
 
     if (input.thumbnailFile instanceof File && input.thumbnailFile.size > 0) {
       if (!input.thumbnailFile.type.startsWith('image/')) {
