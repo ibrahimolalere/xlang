@@ -30,8 +30,7 @@ SUPABASE_SERVICE_ROLE_KEY=...
 ADMIN_UPLOAD_PASSCODE=...
 SUPABASE_VIDEOS_BUCKET=videos
 SUPABASE_THUMBNAILS_BUCKET=videos
-ASSEMBLYAI_API_KEY=... # recommended for auto transcript extraction
-OPENAI_API_KEY=... # optional fallback for auto transcript extraction
+OPENAI_API_KEY=... # required for auto transcript extraction
 ```
 
 3. Create schema and seed data in Supabase SQL editor:
@@ -91,6 +90,5 @@ scripts/
 - Admin uploads local files to Supabase Storage and inserts metadata/transcripts through server API.
 - Admin upload also supports YouTube link submissions and attempts timed-caption import when available.
 - Run `db/supabase.sql` after pulling changes to ensure storage bucket/policies exist.
-- If `ASSEMBLYAI_API_KEY` is set, uploads without manual transcript lines are auto-transcribed.
-- `OPENAI_API_KEY` is optional fallback when AssemblyAI is unavailable.
+- If `OPENAI_API_KEY` is set, uploads without manual transcript lines are auto-transcribed.
 - Run `npm run smoke:ui` for a route-level UI smoke test before deployment.

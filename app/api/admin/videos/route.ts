@@ -319,7 +319,7 @@ export async function POST(request: Request) {
         {
           error: hasTranscriptionProviderConfigured()
             ? `Transcript extraction from audio failed. Upload canceled. ${transcriptionErrors.length > 0 ? `Details: ${transcriptionErrors.join(' | ')}` : 'Add manual transcript lines if this file has unclear/no speech.'}`
-            : 'Transcript extraction from audio failed. Upload canceled because no transcription API key is configured. Set ASSEMBLYAI_API_KEY (recommended) or OPENAI_API_KEY.'
+            : 'Transcript extraction from audio failed. Upload canceled because OPENAI_API_KEY is not configured.'
         },
         { status: 422 }
       );
