@@ -167,3 +167,61 @@ export async function autoTranscribeVideoFromUrl(
     return [];
   }
 }
+
+export async function autoTranscribeVideoFromBlob(
+  blob: Blob,
+  fileName = 'video-upload.mp4'
+): Promise<TranscriptInput[]> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    return [];
+  }
+
+  if (blob.size === 0 || blob.size > MAX_TRANSCRIBE_FILE_BYTES) {
+    return [];
+  }
+
+  try {
+    const bytes = Buffer.from(await blob.arrayBuffer());
+    if (bytes.length === 0 || bytes.length > MAX_TRANSCRIBE_FILE_BYTES) {
+      return [];
+    }
+
+    const uploadableFile = await toFile(bytes, fileName, {
+      type: blob.type || 'video/mp4'
+    });
+
+    const client = new OpenAI({ apiKey });
+    const transcription = await client.audio.transcriptions.create({
+      file: uploadableFile,
+      model: 'whisper-1',
+      response_format: 'verbose_json'
+    });
+
+    const segments = (
+      transcription as {
+        segments?: Array<{ start?: number; end?: number; text?: string }>;
+      }
+    ).segments;
+
+    if (!segments || segments.length === 0) {
+      return [];
+    }
+
+    return segments
+      .map((segment) => ({
+        start_time: Number(segment.start ?? 0),
+        end_time: Number(segment.end ?? 0),
+        text: String(segment.text ?? '').trim()
+      }))
+      .filter(
+        (line) =>
+          Number.isFinite(line.start_time) &&
+          Number.isFinite(line.end_time) &&
+          line.end_time > line.start_time &&
+          line.text.length > 0
+      );
+  } catch {
+    return [];
+  }
+}

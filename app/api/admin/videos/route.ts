@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { LEVELS } from '@/lib/constants';
 import {
   autoTranscribeVideo,
+  autoTranscribeVideoFromBlob,
   autoTranscribeVideoFromUrl,
   autoTranscribeYouTubeVideo,
   FALLBACK_THUMBNAIL,
@@ -250,10 +251,35 @@ export async function POST(request: Request) {
       ((isYouTubeSource ? getYouTubeThumbnailUrl(videoUrl) : null) ?? FALLBACK_THUMBNAIL);
 
     if (!isYouTubeSource && transcripts.length === 0 && videoUrl) {
-      try {
-        transcripts = await autoTranscribeVideoFromUrl(videoUrl);
-      } catch (error) {
-        console.error('Remote auto transcription failed:', error);
+      const storageVideoPath = extractStorageObjectPath({
+        fileUrl: videoUrl,
+        bucket: videosBucket
+      });
+
+      if (storageVideoPath) {
+        try {
+          const { data: blob, error: downloadError } = await supabase.storage
+            .from(videosBucket)
+            .download(storageVideoPath);
+
+          if (downloadError) {
+            console.error('Storage download for transcription failed:', downloadError);
+          } else if (blob) {
+            const fileName =
+              storageVideoPath.split('/').filter(Boolean).pop() ?? 'video-upload.mp4';
+            transcripts = await autoTranscribeVideoFromBlob(blob, fileName);
+          }
+        } catch (error) {
+          console.error('Storage-based transcription failed:', error);
+        }
+      }
+
+      if (transcripts.length === 0) {
+        try {
+          transcripts = await autoTranscribeVideoFromUrl(videoUrl);
+        } catch (error) {
+          console.error('Remote auto transcription failed:', error);
+        }
       }
     }
 
@@ -277,7 +303,9 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            'Transcript extraction from audio failed. Upload canceled. Add manual transcript lines or verify OPENAI_API_KEY is configured.'
+            process.env.OPENAI_API_KEY
+              ? 'Transcript extraction from audio failed. Upload canceled. Add manual transcript lines if this file has unclear/no speech.'
+              : 'Transcript extraction from audio failed. Upload canceled because OPENAI_API_KEY is not configured.'
         },
         { status: 422 }
       );

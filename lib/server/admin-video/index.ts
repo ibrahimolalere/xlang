@@ -2,6 +2,7 @@ export { resolveLevelId } from './levels';
 export { FALLBACK_THUMBNAIL, uploadFileToBucket } from './storage';
 export {
   autoTranscribeVideo,
+  autoTranscribeVideoFromBlob,
   autoTranscribeVideoFromUrl,
   parseTranscriptLines
 } from './transcript';
