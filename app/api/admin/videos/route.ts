@@ -9,6 +9,7 @@ import {
   autoTranscribeYouTubeVideo,
   FALLBACK_THUMBNAIL,
   getYouTubeThumbnailUrl,
+  hasTranscriptionProviderConfigured,
   normalizeYouTubeUrl,
   parseTranscriptLines,
   resolveLevelId,
@@ -316,9 +317,9 @@ export async function POST(request: Request) {
 
       return NextResponse.json(
         {
-          error: process.env.OPENAI_API_KEY
+          error: hasTranscriptionProviderConfigured()
             ? `Transcript extraction from audio failed. Upload canceled. ${transcriptionErrors.length > 0 ? `Details: ${transcriptionErrors.join(' | ')}` : 'Add manual transcript lines if this file has unclear/no speech.'}`
-            : 'Transcript extraction from audio failed. Upload canceled because OPENAI_API_KEY is not configured.'
+            : 'Transcript extraction from audio failed. Upload canceled because no transcription API key is configured. Set ASSEMBLYAI_API_KEY (recommended) or OPENAI_API_KEY.'
         },
         { status: 422 }
       );

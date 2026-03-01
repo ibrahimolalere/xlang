@@ -4,6 +4,7 @@ export {
   autoTranscribeVideo,
   autoTranscribeVideoFromBlob,
   autoTranscribeVideoFromUrl,
+  hasTranscriptionProviderConfigured,
   parseTranscriptLines
 } from './transcript';
 export {
