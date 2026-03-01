@@ -203,18 +203,25 @@ export async function POST(request: Request) {
 
     let transcripts = parseTranscriptLines(input.transcriptLines);
     const hasManualTranscript = transcripts.length > 0;
+    const transcriptionErrors: string[] = [];
     if (transcripts.length === 0) {
       if (isYouTubeSource && normalizedYouTubeUrl) {
         try {
           transcripts = await autoTranscribeYouTubeVideo(normalizedYouTubeUrl);
         } catch (error) {
           console.error('YouTube caption import failed:', error);
+          if (error instanceof Error) {
+            transcriptionErrors.push(error.message);
+          }
         }
       } else if (localVideoFile) {
         try {
           transcripts = await autoTranscribeVideo(localVideoFile);
         } catch (error) {
           console.error('Auto transcription failed:', error);
+          if (error instanceof Error) {
+            transcriptionErrors.push(error.message);
+          }
         }
       }
     }
@@ -264,6 +271,7 @@ export async function POST(request: Request) {
 
           if (downloadError) {
             console.error('Storage download for transcription failed:', downloadError);
+            transcriptionErrors.push(downloadError.message);
           } else if (blob) {
             const fileName =
               storageVideoPath.split('/').filter(Boolean).pop() ?? 'video-upload.mp4';
@@ -271,6 +279,9 @@ export async function POST(request: Request) {
           }
         } catch (error) {
           console.error('Storage-based transcription failed:', error);
+          if (error instanceof Error) {
+            transcriptionErrors.push(error.message);
+          }
         }
       }
 
@@ -279,6 +290,9 @@ export async function POST(request: Request) {
           transcripts = await autoTranscribeVideoFromUrl(videoUrl);
         } catch (error) {
           console.error('Remote auto transcription failed:', error);
+          if (error instanceof Error) {
+            transcriptionErrors.push(error.message);
+          }
         }
       }
     }
@@ -302,10 +316,9 @@ export async function POST(request: Request) {
 
       return NextResponse.json(
         {
-          error:
-            process.env.OPENAI_API_KEY
-              ? 'Transcript extraction from audio failed. Upload canceled. Add manual transcript lines if this file has unclear/no speech.'
-              : 'Transcript extraction from audio failed. Upload canceled because OPENAI_API_KEY is not configured.'
+          error: process.env.OPENAI_API_KEY
+            ? `Transcript extraction from audio failed. Upload canceled. ${transcriptionErrors.length > 0 ? `Details: ${transcriptionErrors.join(' | ')}` : 'Add manual transcript lines if this file has unclear/no speech.'}`
+            : 'Transcript extraction from audio failed. Upload canceled because OPENAI_API_KEY is not configured.'
         },
         { status: 422 }
       );
@@ -439,15 +452,27 @@ export async function PATCH(request: Request) {
       });
     }
 
-    const generatedTranscripts = isYouTubeVideoUrl(existingVideo.video_url)
-      ? await autoTranscribeYouTubeVideo(existingVideo.video_url)
-      : await autoTranscribeVideoFromUrl(existingVideo.video_url);
+    let generatedTranscripts: Array<{
+      start_time: number;
+      end_time: number;
+      text: string;
+    }> = [];
+    let generationError = '';
+    try {
+      generatedTranscripts = isYouTubeVideoUrl(existingVideo.video_url)
+        ? await autoTranscribeYouTubeVideo(existingVideo.video_url)
+        : await autoTranscribeVideoFromUrl(existingVideo.video_url);
+    } catch (error) {
+      generationError = error instanceof Error ? error.message : 'Unknown generation error.';
+    }
 
     if (!generatedTranscripts.length) {
       return NextResponse.json(
         {
           error:
-            'No transcript could be generated automatically for this video. Add transcript lines manually.',
+            generationError
+              ? `No transcript could be generated automatically for this video. ${generationError}`
+              : 'No transcript could be generated automatically for this video. Add transcript lines manually.',
           transcriptCount: 0
         },
         { status: 422 }

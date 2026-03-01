@@ -50,35 +50,8 @@ export async function autoTranscribeVideo(file: File): Promise<TranscriptInput[]
   }
 
   const client = new OpenAI({ apiKey });
-  const transcription = await client.audio.transcriptions.create({
-    file,
-    model: 'whisper-1',
-    response_format: 'verbose_json'
-  });
-
-  const segments = (
-    transcription as {
-      segments?: Array<{ start?: number; end?: number; text?: string }>;
-    }
-  ).segments;
-
-  if (!segments || segments.length === 0) {
-    return [];
-  }
-
-  return segments
-    .map((segment) => ({
-      start_time: Number(segment.start ?? 0),
-      end_time: Number(segment.end ?? 0),
-      text: String(segment.text ?? '').trim()
-    }))
-    .filter(
-      (line) =>
-        Number.isFinite(line.start_time) &&
-        Number.isFinite(line.end_time) &&
-        line.end_time > line.start_time &&
-        line.text.length > 0
-    );
+  const transcription = await transcribeWithFallbackModels(client, file);
+  return normalizeTranscriptionResult(transcription);
 }
 
 export async function autoTranscribeVideoFromUrl(
@@ -134,36 +107,12 @@ export async function autoTranscribeVideoFromUrl(
     const uploadableFile = await toFile(bytes, fileName, { type: contentType });
 
     const client = new OpenAI({ apiKey });
-    const transcription = await client.audio.transcriptions.create({
-      file: uploadableFile,
-      model: 'whisper-1',
-      response_format: 'verbose_json'
-    });
-
-    const segments = (
-      transcription as {
-        segments?: Array<{ start?: number; end?: number; text?: string }>;
-      }
-    ).segments;
-
-    if (!segments || segments.length === 0) {
-      return [];
+    const transcription = await transcribeWithFallbackModels(client, uploadableFile);
+    return normalizeTranscriptionResult(transcription);
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error;
     }
-
-    return segments
-      .map((segment) => ({
-        start_time: Number(segment.start ?? 0),
-        end_time: Number(segment.end ?? 0),
-        text: String(segment.text ?? '').trim()
-      }))
-      .filter(
-        (line) =>
-          Number.isFinite(line.start_time) &&
-          Number.isFinite(line.end_time) &&
-          line.end_time > line.start_time &&
-          line.text.length > 0
-      );
-  } catch {
     return [];
   }
 }
@@ -192,36 +141,94 @@ export async function autoTranscribeVideoFromBlob(
     });
 
     const client = new OpenAI({ apiKey });
-    const transcription = await client.audio.transcriptions.create({
-      file: uploadableFile,
-      model: 'whisper-1',
-      response_format: 'verbose_json'
-    });
-
-    const segments = (
-      transcription as {
-        segments?: Array<{ start?: number; end?: number; text?: string }>;
-      }
-    ).segments;
-
-    if (!segments || segments.length === 0) {
-      return [];
+    const transcription = await transcribeWithFallbackModels(client, uploadableFile);
+    return normalizeTranscriptionResult(transcription);
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error;
     }
-
-    return segments
-      .map((segment) => ({
-        start_time: Number(segment.start ?? 0),
-        end_time: Number(segment.end ?? 0),
-        text: String(segment.text ?? '').trim()
-      }))
-      .filter(
-        (line) =>
-          Number.isFinite(line.start_time) &&
-          Number.isFinite(line.end_time) &&
-          line.end_time > line.start_time &&
-          line.text.length > 0
-      );
-  } catch {
     return [];
   }
+}
+
+async function transcribeWithFallbackModels(
+  client: OpenAI,
+  file: File
+): Promise<unknown> {
+  const models = ['whisper-1', 'gpt-4o-mini-transcribe'];
+  let lastError: Error | null = null;
+
+  for (const model of models) {
+    try {
+      const transcription = await client.audio.transcriptions.create({
+        file,
+        model,
+        response_format: 'verbose_json'
+      });
+      return transcription;
+    } catch (error) {
+      if (error instanceof Error) {
+        lastError = error;
+      } else {
+        lastError = new Error('Unknown transcription provider error.');
+      }
+    }
+  }
+
+  if (lastError) {
+    throw new Error(`OpenAI transcription failed: ${lastError.message}`);
+  }
+
+  throw new Error('OpenAI transcription failed.');
+}
+
+function normalizeTranscriptionResult(transcription: unknown): TranscriptInput[] {
+  const source = transcription as {
+    text?: string;
+    duration?: number | string;
+    segments?: Array<{ start?: number; end?: number; text?: string }>;
+  };
+
+  const segmentLines = (source.segments ?? [])
+    .map((segment) => ({
+      start_time: Number(segment.start ?? 0),
+      end_time: Number(segment.end ?? 0),
+      text: String(segment.text ?? '').trim()
+    }))
+    .filter(
+      (line) =>
+        Number.isFinite(line.start_time) &&
+        Number.isFinite(line.end_time) &&
+        line.end_time > line.start_time &&
+        line.text.length > 0
+    );
+
+  if (segmentLines.length > 0) {
+    return segmentLines;
+  }
+
+  const fullText = String(source.text ?? '').trim();
+  if (!fullText) {
+    return [];
+  }
+
+  const sentences = fullText
+    .split(/(?<=[.!?])\s+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const lines = sentences.length > 0 ? sentences : [fullText];
+  const durationRaw = Number(source.duration ?? 0);
+  const totalDuration = durationRaw > 0 ? durationRaw : Math.max(lines.length * 3, 4);
+  const step = totalDuration / lines.length;
+
+  return lines.map((line, index) => {
+    const start = Number((index * step).toFixed(3));
+    const end = Number(((index + 1) * step).toFixed(3));
+    return {
+      start_time: start,
+      end_time: end > start ? end : start + 1.5,
+      text: line
+    };
+  });
 }
