@@ -51,6 +51,10 @@ export function getSavedWords(): SavedWord[] {
   return readStorage();
 }
 
+export function setSavedWords(words: SavedWord[]) {
+  writeStorage(words);
+}
+
 export function saveWord(
   payload: Omit<SavedWord, 'id' | 'savedAt'>
 ): { saved: boolean; savedWord?: SavedWord } {
@@ -74,19 +78,39 @@ export function saveWord(
   return { saved: true, savedWord: next };
 }
 
-export function removeSavedWord(id: string) {
+export function clearSavedWords() {
+  writeStorage([]);
+}
+
+export function clearSavedWordsLocal() {
+  writeStorage([]);
+}
+
+export function removeSavedWordLocalById(id: string) {
   const existing = readStorage();
   const next = existing.filter((word) => word.id !== id);
   writeStorage(next);
   return next;
 }
 
-export function clearSavedWords() {
-  writeStorage([]);
+export async function syncSavedWordsFromServer(_learnerKey: string) {
+  void _learnerKey;
+  // Local-only fallback: keep existing saved words in storage.
+  return readStorage();
+}
+
+interface ToggleSavedWordInput {
+  learnerKey?: string;
+  word: string;
+  normalizedWord: string;
+  translation: string;
+  sentence: string;
+  videoId: string;
+  videoTitle: string;
 }
 
 export function toggleSavedWord(
-  payload: Omit<SavedWord, 'id' | 'savedAt'> & { learnerKey?: string }
+  payload: ToggleSavedWordInput
 ): { saved: boolean; words: SavedWord[] } {
   const existing = readStorage();
   const existingIndex = existing.findIndex(
@@ -110,4 +134,25 @@ export function toggleSavedWord(
   const next = [nextWord, ...existing];
   writeStorage(next);
   return { saved: true, words: next };
+}
+
+export async function markSavedWordAsLearned(params: { learnerKey?: string; id: string }) {
+  return removeSavedWordLocalById(params.id);
+}
+
+export function removeSavedWord(
+  params:
+    | string
+    | {
+        learnerKey?: string;
+        id: string;
+        videoId?: string;
+        normalizedWord?: string;
+      }
+) {
+  if (typeof params === 'string') {
+    return removeSavedWordLocalById(params);
+  }
+
+  return removeSavedWordLocalById(params.id);
 }
