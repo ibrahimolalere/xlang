@@ -23,6 +23,40 @@ interface VideoPlayerWithTranscriptProps {
   transcript: TranscriptSentence[];
 }
 
+const LEARNER_PROFILE_STORAGE_KEY = 'xlang_learner_profile';
+const LEARNER_KEY_STORAGE_KEY = 'xlang_learner_key';
+
+function resolveLearnerKey() {
+  if (typeof window === 'undefined') {
+    return 'guest';
+  }
+
+  try {
+    const profileRaw = window.localStorage.getItem(LEARNER_PROFILE_STORAGE_KEY);
+    if (profileRaw) {
+      const parsed = JSON.parse(profileRaw) as { learnerKey?: string };
+      const fromProfile = String(parsed?.learnerKey ?? '').trim();
+      if (fromProfile) {
+        return fromProfile;
+      }
+    }
+  } catch {
+    // Ignore malformed profile payloads.
+  }
+
+  const existing = window.localStorage.getItem(LEARNER_KEY_STORAGE_KEY)?.trim();
+  if (existing) {
+    return existing;
+  }
+
+  const generated =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `learner-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  window.localStorage.setItem(LEARNER_KEY_STORAGE_KEY, generated);
+  return generated;
+}
+
 export function VideoPlayerWithTranscript({
   video,
   transcript
@@ -64,6 +98,7 @@ export function VideoPlayerWithTranscript({
   const [sentenceTranslations, setSentenceTranslations] = useState<Record<string, string>>({});
   const [showSentenceTranslations, setShowSentenceTranslations] = useState(true);
   const [savedWordsSet, setSavedWordsSet] = useState<Set<string>>(new Set());
+  const [learnerKey, setLearnerKey] = useState('guest');
   const [isPausedByWordTap, setIsPausedByWordTap] = useState(false);
   const [showFullscreenSeekBar, setShowFullscreenSeekBar] = useState(true);
   const sentenceTranslationRequestedRef = useRef<Set<string>>(new Set());
@@ -80,6 +115,7 @@ export function VideoPlayerWithTranscript({
   useEffect(() => {
     const saved = getSavedWords();
     setSavedWordsSet(new Set(saved.map((word) => `${word.videoId}:${word.normalizedWord}`)));
+    setLearnerKey(resolveLearnerKey());
   }, []);
 
   const subtitleTrackUrl = useMemo(() => {
@@ -723,31 +759,36 @@ ${sentence.text}`
     params: { token: string; normalized: string; sentence: string }
   ) => {
     event.stopPropagation();
-    const { token, normalized, sentence } = params;
-    if (!normalized) {
-      return;
-    }
-
-    const translation = wordTranslations[normalized] ?? 'translation unavailable';
-    const key = `${video.id}:${normalized}`;
-    const result = toggleSavedWord({
-      word: token,
-      normalizedWord: normalized,
-      translation,
-      sentence,
-      videoId: video.id,
-      videoTitle: video.title
-    });
-
-    setSavedWordsSet((previous) => {
-      const next = new Set(previous);
-      if (result.saved) {
-        next.add(key);
-      } else {
-        next.delete(key);
+    void (async () => {
+      const { token, normalized, sentence } = params;
+      if (!normalized) {
+        return;
       }
-      return next;
-    });
+
+      const translation = wordTranslations[normalized] ?? 'translation unavailable';
+      const key = `${video.id}:${normalized}`;
+      const result = await Promise.resolve(
+        toggleSavedWord({
+          learnerKey,
+          word: token,
+          normalizedWord: normalized,
+          translation,
+          sentence,
+          videoId: video.id,
+          videoTitle: video.title
+        })
+      );
+
+      setSavedWordsSet((previous) => {
+        const next = new Set(previous);
+        if (result.saved) {
+          next.add(key);
+        } else {
+          next.delete(key);
+        }
+        return next;
+      });
+    })();
   };
 
   const handleTogglePhraseSave = (
@@ -755,29 +796,33 @@ ${sentence.text}`
     phrase: NonNullable<typeof activePhrase>
   ) => {
     event.stopPropagation();
+    void (async () => {
+      const translation =
+        phraseTranslations[phrase.normalized] ?? 'translation unavailable';
 
-    const translation =
-      phraseTranslations[phrase.normalized] ?? 'translation unavailable';
+      const key = `${video.id}:${phrase.normalized}`;
+      const result = await Promise.resolve(
+        toggleSavedWord({
+          learnerKey,
+          word: phrase.text,
+          normalizedWord: phrase.normalized,
+          translation,
+          sentence: phrase.sentenceText,
+          videoId: video.id,
+          videoTitle: video.title
+        })
+      );
 
-    const key = `${video.id}:${phrase.normalized}`;
-    const result = toggleSavedWord({
-      word: phrase.text,
-      normalizedWord: phrase.normalized,
-      translation,
-      sentence: phrase.sentenceText,
-      videoId: video.id,
-      videoTitle: video.title
-    });
-
-    setSavedWordsSet((previous) => {
-      const next = new Set(previous);
-      if (result.saved) {
-        next.add(key);
-      } else {
-        next.delete(key);
-      }
-      return next;
-    });
+      setSavedWordsSet((previous) => {
+        const next = new Set(previous);
+        if (result.saved) {
+          next.add(key);
+        } else {
+          next.delete(key);
+        }
+        return next;
+      });
+    })();
   };
 
   return (
