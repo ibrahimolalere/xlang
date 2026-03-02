@@ -33,6 +33,119 @@ function normalizeInput(input: string): string {
     .trim();
 }
 
+function sanitizeTranslation(value: string) {
+  return value.replace(/^["'`]|["'`]$/g, '').replace(/\.$/, '').trim();
+}
+
+function parseGoogleTranslatePayload(payload: unknown) {
+  if (!Array.isArray(payload) || !Array.isArray(payload[0])) {
+    return '';
+  }
+
+  const translated = (payload[0] as unknown[])
+    .map((entry) => (Array.isArray(entry) ? String(entry[0] ?? '') : ''))
+    .join('')
+    .trim();
+
+  return sanitizeTranslation(translated);
+}
+
+async function translateWithGoogle(input: string): Promise<string> {
+  const url = new URL('https://translate.googleapis.com/translate_a/single');
+  url.searchParams.set('client', 'gtx');
+  url.searchParams.set('sl', 'de');
+  url.searchParams.set('tl', 'en');
+  url.searchParams.set('dt', 't');
+  url.searchParams.set('q', input);
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      'User-Agent': 'Mozilla/5.0',
+      Accept: 'application/json,text/plain,*/*'
+    },
+    cache: 'no-store'
+  });
+
+  if (!response.ok) {
+    throw new Error(`Google Translate failed: HTTP ${response.status}`);
+  }
+
+  const payload = (await response.json().catch(() => null)) as unknown;
+  const parsed = parseGoogleTranslatePayload(payload);
+  if (!parsed) {
+    throw new Error('Google Translate returned an empty translation.');
+  }
+
+  return parsed;
+}
+
+async function translateWithMyMemory(input: string): Promise<string> {
+  const url = new URL('https://api.mymemory.translated.net/get');
+  url.searchParams.set('q', input);
+  url.searchParams.set('langpair', 'de|en');
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      'User-Agent': 'Mozilla/5.0',
+      Accept: 'application/json'
+    },
+    cache: 'no-store'
+  });
+
+  if (!response.ok) {
+    throw new Error(`MyMemory failed: HTTP ${response.status}`);
+  }
+
+  const payload = (await response.json().catch(() => null)) as
+    | {
+        responseData?: { translatedText?: string };
+      }
+    | null;
+
+  const translated = sanitizeTranslation(
+    String(payload?.responseData?.translatedText ?? '')
+  );
+  if (!translated) {
+    throw new Error('MyMemory returned an empty translation.');
+  }
+
+  return translated;
+}
+
+async function translateWithOpenAI(input: string): Promise<string> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error('OPENAI_API_KEY is not configured.');
+  }
+
+  const client = new OpenAI({ apiKey });
+  const completion = await client.chat.completions.create({
+    model: 'gpt-4o-mini',
+    temperature: 0,
+    messages: [
+      {
+        role: 'system',
+        content:
+          'Translate German input to concise English. Input can be one word or a short phrase. Return only the translation in lowercase.'
+      },
+      {
+        role: 'user',
+        content: input
+      }
+    ]
+  });
+
+  const raw = completion.choices[0]?.message?.content?.trim() ?? '';
+  const translation = sanitizeTranslation(raw);
+  if (!translation) {
+    throw new Error('OpenAI returned an empty translation.');
+  }
+
+  return translation;
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as { word?: string; text?: string };
@@ -43,8 +156,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Text is required.' }, { status: 400 });
     }
 
-    if (cache.has(normalizedInput)) {
-      return NextResponse.json({ translation: cache.get(normalizedInput) });
+    const cached = cache.get(normalizedInput);
+    if (cached) {
+      return NextResponse.json({ translation: cached });
     }
 
     const isSingleWord = !normalizedInput.includes(' ');
@@ -54,38 +168,33 @@ export async function POST(request: Request) {
       return NextResponse.json({ translation });
     }
 
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      const translation = 'translation unavailable';
-      cache.set(normalizedInput, translation);
-      return NextResponse.json({ translation });
+    const attempts: Array<() => Promise<string>> = [
+      () => translateWithGoogle(rawInput),
+      () => translateWithMyMemory(rawInput),
+      () => translateWithOpenAI(rawInput)
+    ];
+
+    const errors: string[] = [];
+    for (const attempt of attempts) {
+      try {
+        const translation = await attempt();
+        if (translation && translation.toLowerCase() !== 'translation unavailable') {
+          cache.set(normalizedInput, translation);
+          return NextResponse.json({ translation });
+        }
+      } catch (error) {
+        errors.push(error instanceof Error ? error.message : 'unknown translation error');
+      }
     }
 
-    const client = new OpenAI({ apiKey });
-    const completion = await client.chat.completions.create({
-      model: 'gpt-4o-mini',
-      temperature: 0,
-      messages: [
-        {
-          role: 'system',
-          content:
-            'Translate German input to concise English. Input can be one word or a short phrase. Return only the translation in lowercase.'
-        },
-        {
-          role: 'user',
-          content: rawInput
-        }
-      ]
-    });
-
-    const raw = completion.choices[0]?.message?.content?.trim() ?? '';
-    const translation =
-      raw.replace(/^["'`]|["'`]$/g, '').replace(/\.$/, '').trim() ||
-      'translation unavailable';
-
-    cache.set(normalizedInput, translation);
-    return NextResponse.json({ translation });
+    return NextResponse.json(
+      {
+        translation: 'translation unavailable',
+        error: errors.join(' | ')
+      },
+      { status: 503 }
+    );
   } catch {
-    return NextResponse.json({ translation: 'translation unavailable' });
+    return NextResponse.json({ translation: 'translation unavailable' }, { status: 500 });
   }
 }

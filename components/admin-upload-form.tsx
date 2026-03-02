@@ -407,9 +407,11 @@ export function AdminUploadForm() {
           onChange={(event) =>
             setForm((prev) => ({ ...prev, transcriptLines: event.target.value }))
           }
-          placeholder={'0|4.8|Hallo!\n4.8|9.5|Heute lernen wir...'}
+          placeholder={'0|4.8|Hallo!\n4.8|9.5|Heute lernen wir...\n\nor\n\n0:00\nHallo!\n0:04\nHeute lernen wir...'}
         />
-        <p className="text-xs text-muted">Format: one line per sentence as start|end|text</p>
+        <p className="text-xs text-muted">
+          Accepted: `start|end|text` or timestamp blocks like `0:00` on one line and text below.
+        </p>
       </label>
 
       <label className="block space-y-1">

@@ -6,11 +6,93 @@ import type { TranscriptInput } from './types';
 const MAX_OPENAI_TRANSCRIBE_FILE_BYTES = 24 * 1024 * 1024;
 
 export function parseTranscriptLines(raw: string): TranscriptInput[] {
-  if (!raw.trim()) {
+  const normalizedRaw = raw.trim();
+  if (!normalizedRaw) {
     return [];
   }
 
-  return raw
+  const plainLines = normalizedRaw
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  // Format 1: start|end|text
+  if (plainLines.every((line) => line.includes('|'))) {
+    return plainLines.map((line, index) => {
+      const [startRaw, endRaw, ...textParts] = line.split('|');
+      const start = Number(startRaw);
+      const end = Number(endRaw);
+      const text = textParts.join('|').trim();
+
+      if (!Number.isFinite(start) || !Number.isFinite(end) || !text) {
+        throw new Error(
+          `Invalid transcript format on line ${index + 1}. Use: start|end|text`
+        );
+      }
+
+      if (end <= start) {
+        throw new Error(`Transcript line ${index + 1} has invalid time range.`);
+      }
+
+      return {
+        start_time: start,
+        end_time: end,
+        text
+      };
+    });
+  }
+
+  // Format 2: YouTube-like block format:
+  // 0:00
+  // sentence text...
+  const blocks: Array<{ start: number; text: string }> = [];
+  let currentStart: number | null = null;
+  let currentTextParts: string[] = [];
+
+  for (const line of plainLines) {
+    const parsedTime = parseTimestampToSeconds(line);
+    if (parsedTime !== null) {
+      if (currentStart !== null) {
+        const text = currentTextParts.join(' ').replace(/\s+/g, ' ').trim();
+        if (text) {
+          blocks.push({ start: currentStart, text });
+        }
+      }
+
+      currentStart = parsedTime;
+      currentTextParts = [];
+      continue;
+    }
+
+    if (currentStart !== null) {
+      currentTextParts.push(line);
+    }
+  }
+
+  if (currentStart !== null) {
+    const text = currentTextParts.join(' ').replace(/\s+/g, ' ').trim();
+    if (text) {
+      blocks.push({ start: currentStart, text });
+    }
+  }
+
+  if (blocks.length > 0) {
+    return blocks.map((block, index) => {
+      const nextStart = blocks[index + 1]?.start;
+      const safeEnd =
+        typeof nextStart === 'number' && nextStart > block.start
+          ? nextStart
+          : block.start + 3;
+
+      return {
+        start_time: block.start,
+        end_time: safeEnd,
+        text: block.text
+      };
+    });
+  }
+
+  return normalizedRaw
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean)
@@ -36,6 +118,29 @@ export function parseTranscriptLines(raw: string): TranscriptInput[] {
         text
       };
     });
+}
+
+function parseTimestampToSeconds(value: string): number | null {
+  const match = value.trim().match(/^(\d{1,2}):([0-5]\d)(?::([0-5]\d))?$/);
+  if (!match) {
+    return null;
+  }
+
+  const first = Number(match[1]);
+  const second = Number(match[2]);
+  const third = typeof match[3] === 'string' ? Number(match[3]) : null;
+
+  if (!Number.isFinite(first) || !Number.isFinite(second)) {
+    return null;
+  }
+
+  if (third === null) {
+    // mm:ss
+    return first * 60 + second;
+  }
+
+  // hh:mm:ss
+  return first * 3600 + second * 60 + third;
 }
 
 export function hasTranscriptionProviderConfigured() {
@@ -93,8 +198,7 @@ async function autoTranscribeWithOpenAIFile(file: File) {
   }
 
   const client = new OpenAI({ apiKey: getOpenAIKey() });
-  const transcription = await transcribeWithFallbackModels(client, file);
-  return normalizeTranscriptionResult(transcription);
+  return transcribeWithFallbackModels(client, file);
 }
 
 async function autoTranscribeWithOpenAIUrl(videoUrl: string) {
@@ -155,8 +259,7 @@ async function autoTranscribeWithOpenAIUrl(videoUrl: string) {
   const uploadableFile = await toFile(bytes, fileName, { type: contentType });
 
   const client = new OpenAI({ apiKey: getOpenAIKey() });
-  const transcription = await transcribeWithFallbackModels(client, uploadableFile);
-  return normalizeTranscriptionResult(transcription);
+  return transcribeWithFallbackModels(client, uploadableFile);
 }
 
 async function autoTranscribeWithOpenAIBlob(blob: Blob, fileName: string) {
@@ -182,39 +285,39 @@ async function autoTranscribeWithOpenAIBlob(blob: Blob, fileName: string) {
   });
 
   const client = new OpenAI({ apiKey: getOpenAIKey() });
-  const transcription = await transcribeWithFallbackModels(client, uploadableFile);
-  return normalizeTranscriptionResult(transcription);
+  return transcribeWithFallbackModels(client, uploadableFile);
 }
 
 async function transcribeWithFallbackModels(
   client: OpenAI,
   file: File
-): Promise<unknown> {
-  const models = ['whisper-1', 'gpt-4o-mini-transcribe'];
-  let lastError: Error | null = null;
+): Promise<TranscriptInput[]> {
+  const models = ['gpt-4o-transcribe', 'whisper-1', 'gpt-4o-mini-transcribe'];
+  const errors: string[] = [];
 
   for (const model of models) {
     try {
       const transcription = await client.audio.transcriptions.create({
         file,
         model,
+        language: 'de',
         response_format: 'verbose_json'
       });
-      return transcription;
-    } catch (error) {
-      if (error instanceof Error) {
-        lastError = error;
-      } else {
-        lastError = new Error('Unknown transcription provider error.');
+
+      const normalized = normalizeTranscriptionResult(transcription);
+      if (normalized.length > 0) {
+        return normalized;
       }
+
+      errors.push(`${model}: empty transcript`);
+    } catch (error) {
+      errors.push(
+        `${model}: ${error instanceof Error ? error.message : 'Unknown provider error.'}`
+      );
     }
   }
 
-  if (lastError) {
-    throw new Error(`OpenAI transcription failed: ${lastError.message}`);
-  }
-
-  throw new Error('OpenAI transcription failed.');
+  throw new Error(`OpenAI transcription failed. ${errors.join(' | ')}`);
 }
 
 function normalizeTranscriptionResult(transcription: unknown): TranscriptInput[] {
