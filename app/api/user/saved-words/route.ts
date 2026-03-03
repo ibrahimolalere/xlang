@@ -15,6 +15,8 @@ interface SavedWordRow {
   created_at: string;
 }
 
+const REVIEW_INTERVAL_MS = 60 * 1000;
+
 interface SavedWordPayload {
   word: string;
   normalizedWord: string;
@@ -22,6 +24,10 @@ interface SavedWordPayload {
   sentence: string;
   videoId: string;
   videoTitle: string;
+}
+
+function getInitialNextPracticeIso() {
+  return new Date(Date.now() + REVIEW_INTERVAL_MS).toISOString();
 }
 
 function mapSavedWord(row: SavedWordRow) {
@@ -169,7 +175,8 @@ export async function POST(request: NextRequest) {
         translation: payload.translation,
         sentence: payload.sentence,
         video_id: payload.videoId,
-        video_title: payload.videoTitle
+        video_title: payload.videoTitle,
+        next_practice_at: getInitialNextPracticeIso()
       });
       if (insertError) {
         throw insertError;

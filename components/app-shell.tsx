@@ -12,6 +12,7 @@ import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 
 import { AuthControls } from '@/components/auth/auth-controls';
+import { PracticeSessionModal } from '@/components/practice/practice-session-modal';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { LEVELS } from '@/lib/constants';
 
@@ -56,6 +57,7 @@ function AdminShell({ children }: AppShellProps) {
 function LearnerShell({ children }: AppShellProps) {
   return (
     <>
+      <PracticeSessionModal />
       <header className="sticky top-0 z-40 border-b border-border/80 bg-surface/95 backdrop-blur-xl">
         <div className="mx-auto flex h-14 w-full max-w-[1600px] items-center gap-3 px-3 sm:px-6">
           <Link

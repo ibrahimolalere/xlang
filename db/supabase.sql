@@ -2,8 +2,7 @@
 create extension if not exists "pgcrypto";
 
 -- Drop order for re-runs in development
-drop table if exists learner_saved_words cascade;
-drop table if exists learner_profiles cascade;
+drop table if exists saved_words cascade;
 drop table if exists transcripts cascade;
 drop table if exists videos cascade;
 drop table if exists levels cascade;
@@ -32,47 +31,32 @@ create table transcripts (
   text text not null
 );
 
-create table learner_profiles (
+create table saved_words (
   id uuid primary key default gen_random_uuid(),
-  learner_key text not null unique,
-  contact_type text check (contact_type in ('email', 'whatsapp')),
-  contact_value text,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-create table learner_saved_words (
-  id uuid primary key default gen_random_uuid(),
-  learner_key text not null references learner_profiles(learner_key) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
   word text not null,
   normalized_word text not null,
   translation text not null,
   sentence text not null,
   video_id uuid not null references videos(id) on delete cascade,
   video_title text not null,
-  status text not null default 'saved' check (status in ('saved', 'learned')),
-  saved_at timestamptz not null default now(),
-  learned_at timestamptz,
-  reminder_due_at timestamptz not null default (now() + interval '24 hours'),
-  reminder_sent_at timestamptz
+  created_at timestamptz not null default now(),
+  next_practice_at timestamptz not null default (now() + interval '1 minute'),
+  last_practiced_at timestamptz null,
+  unique (user_id, video_id, normalized_word)
 );
 
 create index videos_level_id_idx on videos(level_id);
 create index transcripts_video_id_idx on transcripts(video_id);
 create index transcripts_video_start_time_idx on transcripts(video_id, start_time);
-create index learner_saved_words_learner_key_idx on learner_saved_words(learner_key);
-create index learner_saved_words_due_idx on learner_saved_words(reminder_due_at)
-  where status = 'saved' and reminder_sent_at is null;
-create unique index learner_saved_words_unique_active_idx
-  on learner_saved_words(learner_key, video_id, normalized_word)
-  where status = 'saved';
+create index saved_words_user_id_idx on saved_words(user_id, created_at desc);
+create index saved_words_user_next_practice_idx on saved_words(user_id, next_practice_at);
 
 -- Row level security for public read access
 alter table levels enable row level security;
 alter table videos enable row level security;
 alter table transcripts enable row level security;
-alter table learner_profiles enable row level security;
-alter table learner_saved_words enable row level security;
+alter table saved_words enable row level security;
 
 create policy "Public read levels"
   on levels for select
@@ -88,6 +72,12 @@ create policy "Public read transcripts"
   on transcripts for select
   to anon, authenticated
   using (true);
+
+create policy "Users manage own saved words"
+  on saved_words for all
+  to authenticated
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
 
 -- Storage bucket for uploaded local files from /admin.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
