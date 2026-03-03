@@ -9,56 +9,83 @@ export interface SavedWord {
   savedAt: string;
 }
 
-const STORAGE_KEY = 'xlang_saved_words';
+const STORAGE_KEY_PREFIX = 'xlang_saved_words';
 export const SAVED_WORDS_UPDATED_EVENT = 'xlang:saved-words-updated';
 
-function readStorage(): SavedWord[] {
+function normalizeLearnerKey(learnerKey?: string): string {
+  const trimmed = String(learnerKey ?? '').trim();
+  return trimmed || 'guest';
+}
+
+function getStorageKey(learnerKey?: string): string {
+  return `${STORAGE_KEY_PREFIX}:${normalizeLearnerKey(learnerKey)}`;
+}
+
+function parseSavedWords(raw: string | null): SavedWord[] {
+  if (!raw) {
+    return [];
+  }
+
+  const parsed = JSON.parse(raw) as SavedWord[];
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+
+  return parsed;
+}
+
+function readStorage(learnerKey?: string): SavedWord[] {
   if (typeof window === 'undefined') {
     return [];
   }
 
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      return [];
+    const storageKey = getStorageKey(learnerKey);
+    const scoped = parseSavedWords(window.localStorage.getItem(storageKey));
+    if (scoped.length > 0) {
+      return scoped;
     }
 
-    const parsed = JSON.parse(raw) as SavedWord[];
-    if (!Array.isArray(parsed)) {
-      return [];
+    // Backward compatibility for older builds that used one global key.
+    const legacy = parseSavedWords(window.localStorage.getItem(STORAGE_KEY_PREFIX));
+    if (legacy.length > 0) {
+      window.localStorage.setItem(storageKey, JSON.stringify(legacy));
+      window.localStorage.removeItem(STORAGE_KEY_PREFIX);
+      return legacy;
     }
 
-    return parsed;
+    return scoped;
   } catch {
     return [];
   }
 }
 
-function writeStorage(words: SavedWord[]) {
+function writeStorage(words: SavedWord[], learnerKey?: string) {
   if (typeof window === 'undefined') {
     return;
   }
 
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(words));
+  const normalizedLearnerKey = normalizeLearnerKey(learnerKey);
+  window.localStorage.setItem(getStorageKey(normalizedLearnerKey), JSON.stringify(words));
   window.dispatchEvent(
-    new CustomEvent<{ words: SavedWord[] }>(SAVED_WORDS_UPDATED_EVENT, {
-      detail: { words }
+    new CustomEvent<{ words: SavedWord[]; learnerKey: string }>(SAVED_WORDS_UPDATED_EVENT, {
+      detail: { words, learnerKey: normalizedLearnerKey }
     })
   );
 }
 
-export function getSavedWords(): SavedWord[] {
-  return readStorage();
+export function getSavedWords(learnerKey?: string): SavedWord[] {
+  return readStorage(learnerKey);
 }
 
-export function setSavedWords(words: SavedWord[]) {
-  writeStorage(words);
+export function setSavedWords(words: SavedWord[], learnerKey?: string) {
+  writeStorage(words, learnerKey);
 }
 
 export function saveWord(
-  payload: Omit<SavedWord, 'id' | 'savedAt'>
+  payload: Omit<SavedWord, 'id' | 'savedAt'> & { learnerKey?: string }
 ): { saved: boolean; savedWord?: SavedWord } {
-  const existing = readStorage();
+  const existing = readStorage(payload.learnerKey);
   const duplicate = existing.find(
     (word) =>
       word.normalizedWord === payload.normalizedWord && word.videoId === payload.videoId
@@ -74,29 +101,28 @@ export function saveWord(
     savedAt: new Date().toISOString()
   };
 
-  writeStorage([next, ...existing]);
+  writeStorage([next, ...existing], payload.learnerKey);
   return { saved: true, savedWord: next };
 }
 
-export function clearSavedWords() {
-  writeStorage([]);
+export function clearSavedWords(learnerKey?: string) {
+  writeStorage([], learnerKey);
 }
 
-export function clearSavedWordsLocal() {
-  writeStorage([]);
+export function clearSavedWordsLocal(learnerKey?: string) {
+  writeStorage([], learnerKey);
 }
 
-export function removeSavedWordLocalById(id: string) {
-  const existing = readStorage();
+export function removeSavedWordLocalById(id: string, learnerKey?: string) {
+  const existing = readStorage(learnerKey);
   const next = existing.filter((word) => word.id !== id);
-  writeStorage(next);
+  writeStorage(next, learnerKey);
   return next;
 }
 
-export async function syncSavedWordsFromServer(_learnerKey: string) {
-  void _learnerKey;
+export async function syncSavedWordsFromServer(learnerKey: string) {
   // Local-only fallback: keep existing saved words in storage.
-  return readStorage();
+  return readStorage(learnerKey);
 }
 
 interface ToggleSavedWordInput {
@@ -112,7 +138,7 @@ interface ToggleSavedWordInput {
 export function toggleSavedWord(
   payload: ToggleSavedWordInput
 ): { saved: boolean; words: SavedWord[] } {
-  const existing = readStorage();
+  const existing = readStorage(payload.learnerKey);
   const existingIndex = existing.findIndex(
     (word) =>
       word.normalizedWord === payload.normalizedWord && word.videoId === payload.videoId
@@ -121,7 +147,7 @@ export function toggleSavedWord(
   if (existingIndex >= 0) {
     const next = [...existing];
     next.splice(existingIndex, 1);
-    writeStorage(next);
+    writeStorage(next, payload.learnerKey);
     return { saved: false, words: next };
   }
 
@@ -132,12 +158,12 @@ export function toggleSavedWord(
   };
 
   const next = [nextWord, ...existing];
-  writeStorage(next);
+  writeStorage(next, payload.learnerKey);
   return { saved: true, words: next };
 }
 
 export async function markSavedWordAsLearned(params: { learnerKey?: string; id: string }) {
-  return removeSavedWordLocalById(params.id);
+  return removeSavedWordLocalById(params.id, params.learnerKey);
 }
 
 export function removeSavedWord(
@@ -154,5 +180,5 @@ export function removeSavedWord(
     return removeSavedWordLocalById(params);
   }
 
-  return removeSavedWordLocalById(params.id);
+  return removeSavedWordLocalById(params.id, params.learnerKey);
 }

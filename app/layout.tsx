@@ -4,11 +4,13 @@ import {
   CirclePlay,
   GraduationCap,
   Home,
+  LogIn,
   Shield
 } from 'lucide-react';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 
+import { AuthControls } from '@/components/auth/auth-controls';
 import { Providers } from '@/components/providers';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { LEVELS } from '@/lib/constants';
@@ -46,6 +48,7 @@ export default function RootLayout({
               </div>
 
               <div className="ml-auto flex items-center gap-2">
+                <AuthControls />
                 <Link
                   href="/admin"
                   className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border/80 bg-panel px-3 text-xs font-semibold text-muted transition hover:border-accent/50 hover:text-ink sm:text-sm"
@@ -87,6 +90,13 @@ export default function RootLayout({
                   <Shield className="h-4 w-4" />
                   Admin
                 </Link>
+                <Link
+                  href="/auth"
+                  className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-border/80 bg-panel px-3 text-xs font-semibold text-muted"
+                >
+                  <LogIn className="h-4 w-4" />
+                  Account
+                </Link>
               </div>
             </div>
           </header>
@@ -115,6 +125,13 @@ export default function RootLayout({
                   >
                     <Shield className="h-4 w-4" />
                     Admin Studio
+                  </Link>
+                  <Link
+                    href="/auth"
+                    className="inline-flex h-10 w-full items-center gap-2 rounded-xl px-3 text-sm font-semibold text-ink transition hover:bg-surface"
+                  >
+                    <LogIn className="h-4 w-4" />
+                    Account
                   </Link>
                 </div>
 

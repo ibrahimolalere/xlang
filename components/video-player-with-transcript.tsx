@@ -5,6 +5,7 @@ import ReactPlayer from 'react-player';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, SyntheticEvent } from 'react';
 
+import { useSupabaseAuth } from '@/components/auth/supabase-auth-provider';
 import { FullscreenSubtitleOverlay } from '@/components/video-player/fullscreen-subtitle-overlay';
 import { PlaybackControls } from '@/components/video-player/playback-controls';
 import { cn, formatSeconds, getPlayableVideoUrl } from '@/lib/utils';
@@ -61,6 +62,7 @@ export function VideoPlayerWithTranscript({
   video,
   transcript
 }: VideoPlayerWithTranscriptProps) {
+  const { user } = useSupabaseAuth();
   const playerRef = useRef<ReactPlayer>(null);
   const playerViewportRef = useRef<HTMLDivElement>(null);
   const fullscreenOverlayRef = useRef<HTMLDivElement>(null);
@@ -113,10 +115,11 @@ export function VideoPlayerWithTranscript({
       | null;
 
   useEffect(() => {
-    const saved = getSavedWords();
+    const resolvedLearnerKey = user?.id ?? resolveLearnerKey();
+    setLearnerKey(resolvedLearnerKey);
+    const saved = getSavedWords(resolvedLearnerKey);
     setSavedWordsSet(new Set(saved.map((word) => `${word.videoId}:${word.normalizedWord}`)));
-    setLearnerKey(resolveLearnerKey());
-  }, []);
+  }, [user?.id]);
 
   const subtitleTrackUrl = useMemo(() => {
     if (transcript.length === 0) {
@@ -832,6 +835,9 @@ ${sentence.text}`
           ref={playerViewportRef}
           className={cn(
             'relative overflow-hidden rounded-xl border border-border/80 bg-black sm:rounded-2xl',
+            !isInteractiveFullscreen &&
+              !isSimulatedFullscreen &&
+              'sticky z-30 top-[6.25rem] sm:top-16',
             isInteractiveFullscreen && 'h-[100dvh] w-[100dvw] rounded-none border-0 bg-black',
             isSimulatedFullscreen && 'fixed inset-0 z-[100] bg-black'
           )}
