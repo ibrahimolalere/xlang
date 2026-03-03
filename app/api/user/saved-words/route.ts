@@ -15,7 +15,7 @@ interface SavedWordRow {
   created_at: string;
 }
 
-const REVIEW_INTERVAL_MS = 60 * 1000;
+const REVIEW_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 interface SavedWordPayload {
   word: string;

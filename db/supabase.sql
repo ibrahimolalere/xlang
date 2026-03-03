@@ -41,7 +41,7 @@ create table saved_words (
   video_id uuid not null references videos(id) on delete cascade,
   video_title text not null,
   created_at timestamptz not null default now(),
-  next_practice_at timestamptz not null default (now() + interval '1 minute'),
+  next_practice_at timestamptz not null default (now() + interval '24 hours'),
   last_practiced_at timestamptz null,
   unique (user_id, video_id, normalized_word)
 );

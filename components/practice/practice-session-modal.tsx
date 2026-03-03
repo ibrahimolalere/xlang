@@ -261,7 +261,7 @@ export function PracticeSessionModal() {
                     Time to review your saved words
                   </h2>
                   <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted sm:text-base">
-                    Type the English meaning. Correct answers are marked learned. Skipped words return in 1 minute.
+                    Type the English meaning. Correct answers are marked learned. Skipped words return in 24 hours.
                   </p>
                 </div>
 

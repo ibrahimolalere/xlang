@@ -19,7 +19,7 @@ interface PracticeWordResponse {
   savedAt: string;
 }
 
-const REVIEW_INTERVAL_MS = 60 * 1000;
+const REVIEW_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const STUDY_WINDOW_MS = 2 * 60 * 60 * 1000;
 
 function getNextPracticeIso() {

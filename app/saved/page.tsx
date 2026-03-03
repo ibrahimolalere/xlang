@@ -1,6 +1,5 @@
 import { SavedWordsList } from '@/components/saved-words-list';
 import { BookMarked } from 'lucide-react';
-import { Suspense } from 'react';
 
 export default function SavedWordsPage() {
   return (
@@ -14,18 +13,10 @@ export default function SavedWordsPage() {
           Saved Vocabulary
         </h1>
         <p className="mt-2 max-w-3xl text-sm leading-relaxed text-muted sm:text-base">
-          Save words for review, get 24-hour reminders via email or WhatsApp, and clear items through quiz or learned checkoff.
+          Review your saved words, phrases, and transcript lines, then revisit the original video context.
         </p>
       </div>
-      <Suspense
-        fallback={
-          <div className="rounded-2xl border border-border/80 bg-panel p-6 text-center sm:p-8">
-            <p className="text-sm text-muted sm:text-base">Loading saved vocabulary...</p>
-          </div>
-        }
-      >
-        <SavedWordsList />
-      </Suspense>
+      <SavedWordsList />
     </section>
   );
 }
