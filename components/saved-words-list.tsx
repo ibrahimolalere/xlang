@@ -10,6 +10,7 @@ import {
   clearSavedWords,
   getSavedWords,
   removeSavedWord,
+  syncSavedWordsFromServer,
   type SavedWord
 } from '@/lib/vocabulary';
 
@@ -20,19 +21,23 @@ export function SavedWordsList() {
   const [revealedIds, setRevealedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    const refresh = () => {
+    const refresh = async () => {
       setSavedWords(getSavedWords(learnerKey));
+      if (learnerKey !== 'guest') {
+        const synced = await syncSavedWordsFromServer(learnerKey);
+        setSavedWords(synced);
+      }
     };
 
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
-        refresh();
+        void refresh();
       }
     };
 
     const handleStorage = (event: StorageEvent) => {
       if (!event.key || event.key === `xlang_saved_words:${learnerKey}`) {
-        refresh();
+        void refresh();
       }
     };
 
@@ -40,12 +45,15 @@ export function SavedWordsList() {
       const customEvent = event as CustomEvent<{ learnerKey?: string }>;
       const eventLearnerKey = customEvent.detail?.learnerKey ?? 'guest';
       if (eventLearnerKey === learnerKey) {
-        refresh();
+        void refresh();
       }
     };
 
-    refresh();
-    window.addEventListener('focus', refresh);
+    void refresh();
+    const handleFocus = () => {
+      void refresh();
+    };
+    window.addEventListener('focus', handleFocus);
     window.addEventListener('storage', handleStorage);
     window.addEventListener(
       SAVED_WORDS_UPDATED_EVENT,
@@ -54,7 +62,7 @@ export function SavedWordsList() {
     document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
-      window.removeEventListener('focus', refresh);
+      window.removeEventListener('focus', handleFocus);
       window.removeEventListener('storage', handleStorage);
       window.removeEventListener(
         SAVED_WORDS_UPDATED_EVENT,

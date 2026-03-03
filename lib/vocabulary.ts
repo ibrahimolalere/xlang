@@ -74,6 +74,51 @@ function writeStorage(words: SavedWord[], learnerKey?: string) {
   );
 }
 
+async function getAccessToken() {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    const [{ createSupabaseBrowserClient }] = await Promise.all([
+      import('@/lib/supabase/browser')
+    ]);
+    const supabase = createSupabaseBrowserClient();
+    const { data, error } = await supabase.auth.getSession();
+    if (error) {
+      return null;
+    }
+    return data.session?.access_token ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function requestServerSavedWords<T = { words: SavedWord[] }>(
+  method: 'GET' | 'POST' | 'DELETE',
+  body?: unknown
+) {
+  const accessToken = await getAccessToken();
+  if (!accessToken) {
+    return null;
+  }
+
+  const response = await fetch('/api/user/saved-words', {
+    method,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: body ? JSON.stringify(body) : undefined
+  });
+
+  if (!response.ok) {
+    throw new Error(`Saved words request failed (${response.status}).`);
+  }
+
+  return (await response.json()) as T;
+}
+
 export function getSavedWords(learnerKey?: string): SavedWord[] {
   return readStorage(learnerKey);
 }
@@ -107,6 +152,12 @@ export function saveWord(
 
 export function clearSavedWords(learnerKey?: string) {
   writeStorage([], learnerKey);
+
+  if (learnerKey && learnerKey !== 'guest') {
+    void requestServerSavedWords('DELETE', { clearAll: true }).catch(() => {
+      // Keep local clear result when server sync fails.
+    });
+  }
 }
 
 export function clearSavedWordsLocal(learnerKey?: string) {
@@ -121,7 +172,20 @@ export function removeSavedWordLocalById(id: string, learnerKey?: string) {
 }
 
 export async function syncSavedWordsFromServer(learnerKey: string) {
-  // Local-only fallback: keep existing saved words in storage.
+  if (!learnerKey || learnerKey === 'guest') {
+    return readStorage(learnerKey);
+  }
+
+  try {
+    const result = await requestServerSavedWords<{ words: SavedWord[] }>('GET');
+    if (result?.words) {
+      writeStorage(result.words, learnerKey);
+      return result.words;
+    }
+  } catch {
+    // Fall back to local storage when server sync fails.
+  }
+
   return readStorage(learnerKey);
 }
 
@@ -148,6 +212,26 @@ export function toggleSavedWord(
     const next = [...existing];
     next.splice(existingIndex, 1);
     writeStorage(next, payload.learnerKey);
+
+    if (payload.learnerKey && payload.learnerKey !== 'guest') {
+      void requestServerSavedWords('POST', {
+        word: payload.word,
+        normalizedWord: payload.normalizedWord,
+        translation: payload.translation,
+        sentence: payload.sentence,
+        videoId: payload.videoId,
+        videoTitle: payload.videoTitle
+      })
+        .then((result) => {
+          if (result?.words) {
+            writeStorage(result.words, payload.learnerKey);
+          }
+        })
+        .catch(() => {
+          // Keep local result when server sync fails.
+        });
+    }
+
     return { saved: false, words: next };
   }
 
@@ -159,6 +243,26 @@ export function toggleSavedWord(
 
   const next = [nextWord, ...existing];
   writeStorage(next, payload.learnerKey);
+
+  if (payload.learnerKey && payload.learnerKey !== 'guest') {
+    void requestServerSavedWords('POST', {
+      word: payload.word,
+      normalizedWord: payload.normalizedWord,
+      translation: payload.translation,
+      sentence: payload.sentence,
+      videoId: payload.videoId,
+      videoTitle: payload.videoTitle
+    })
+      .then((result) => {
+        if (result?.words) {
+          writeStorage(result.words, payload.learnerKey);
+        }
+      })
+      .catch(() => {
+        // Keep local result when server sync fails.
+      });
+  }
+
   return { saved: true, words: next };
 }
 
@@ -180,5 +284,19 @@ export function removeSavedWord(
     return removeSavedWordLocalById(params);
   }
 
-  return removeSavedWordLocalById(params.id, params.learnerKey);
+  const next = removeSavedWordLocalById(params.id, params.learnerKey);
+
+  if (params.learnerKey && params.learnerKey !== 'guest') {
+    void requestServerSavedWords('DELETE', { id: params.id })
+      .then((result) => {
+        if (result?.words) {
+          writeStorage(result.words, params.learnerKey);
+        }
+      })
+      .catch(() => {
+        // Keep local result when server sync fails.
+      });
+  }
+
+  return next;
 }

@@ -16,7 +16,7 @@ import {
   normalizeWord,
   tokenizeSentence
 } from '@/lib/video/subtitle-utils';
-import { getSavedWords, toggleSavedWord } from '@/lib/vocabulary';
+import { getSavedWords, syncSavedWordsFromServer, toggleSavedWord } from '@/lib/vocabulary';
 import type { TranscriptSentence, Video } from '@/types/database';
 
 interface VideoPlayerWithTranscriptProps {
@@ -119,6 +119,12 @@ export function VideoPlayerWithTranscript({
     setLearnerKey(resolvedLearnerKey);
     const saved = getSavedWords(resolvedLearnerKey);
     setSavedWordsSet(new Set(saved.map((word) => `${word.videoId}:${word.normalizedWord}`)));
+
+    if (resolvedLearnerKey !== 'guest') {
+      void syncSavedWordsFromServer(resolvedLearnerKey).then((words) => {
+        setSavedWordsSet(new Set(words.map((word) => `${word.videoId}:${word.normalizedWord}`)));
+      });
+    }
   }, [user?.id]);
 
   const subtitleTrackUrl = useMemo(() => {
