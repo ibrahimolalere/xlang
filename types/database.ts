@@ -1,4 +1,4 @@
-export type LevelName = 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
+export type LevelName = 'A1' | 'A2' | 'B2' | 'C1';
 
 export interface Level {
   id: string;
