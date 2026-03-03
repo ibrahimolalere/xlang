@@ -10,7 +10,7 @@ import {
   X
 } from 'lucide-react';
 import { usePathname } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { useSupabaseAuth } from '@/components/auth/supabase-auth-provider';
 import { syncSavedWordsFromServer } from '@/lib/vocabulary';
@@ -234,16 +234,6 @@ export function PracticeSessionModal() {
     }
   };
 
-  const cardToneClasses = useMemo(() => {
-    if (submitResult === 'correct') {
-      return 'border-green-400/70 bg-green-50';
-    }
-    if (submitResult === 'wrong') {
-      return 'border-red-400/70 bg-red-50';
-    }
-    return 'border-border/80 bg-surface';
-  }, [submitResult]);
-
   if (!user || shouldSuppress || (!isOpen && !isFetching)) {
     return null;
   }
@@ -251,27 +241,27 @@ export function PracticeSessionModal() {
   return (
     <>
       {isFetching ? (
-        <div className="pointer-events-none fixed bottom-5 right-5 z-[120] inline-flex items-center gap-2 rounded-full border border-border/80 bg-panel/95 px-4 py-2 text-sm font-semibold text-muted shadow-sm backdrop-blur">
+        <div className="pointer-events-none fixed bottom-5 right-5 z-[120] inline-flex items-center gap-2 rounded-full border border-border/70 bg-white/95 px-4 py-2 text-sm font-semibold text-muted shadow-[0_8px_22px_rgba(15,23,42,0.12)] backdrop-blur">
           <Loader2 className="h-4 w-4 animate-spin text-accent" />
           Preparing your practice deck
         </div>
       ) : null}
 
       {isOpen && currentWord ? (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/45 p-3 backdrop-blur-[3px] sm:p-5">
-          <div className="w-full max-w-2xl overflow-hidden rounded-3xl border border-border/70 bg-panel shadow-[0_18px_60px_rgba(0,0,0,0.22)]">
-            <div className="border-b border-border/70 bg-gradient-to-r from-accent/10 via-white to-white p-5 sm:p-6">
-              <div className="flex items-start justify-between gap-3">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/55 p-3 backdrop-blur-[5px] sm:p-5">
+          <div className="w-full max-w-2xl overflow-hidden rounded-3xl border border-white/30 bg-white shadow-[0_24px_70px_rgba(2,6,23,0.38)]">
+            <div className="border-b border-border/70 bg-[linear-gradient(94deg,rgba(255,153,48,0.14)_0%,rgba(255,255,255,1)_42%,rgba(255,255,255,1)_100%)] p-5 sm:p-7">
+              <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="inline-flex items-center gap-1.5 rounded-full border border-accent/25 bg-white px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-accent">
-                    <Sparkles className="h-3.5 w-3.5" />
+                  <p className="inline-flex items-center gap-1.5 rounded-full border border-accent/30 bg-white px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-accent">
+                    <Sparkles className="h-3.5 w-3.5 stroke-[2.2]" />
                     Practice Ready
                   </p>
-                  <h2 className="mt-3 text-2xl font-bold tracking-tight text-ink sm:text-3xl">
+                  <h2 className="mt-4 text-2xl font-bold tracking-tight text-ink sm:text-[2.1rem]">
                     Time to review your saved words
                   </h2>
-                  <p className="mt-2 text-sm text-muted sm:text-base">
-                    Translate each German word. Correct answers are marked learned. Skipped words return in 1 minute.
+                  <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted sm:text-base">
+                    Type the English meaning. Correct answers are marked learned. Skipped words return in 1 minute.
                   </p>
                 </div>
 
@@ -279,41 +269,47 @@ export function PracticeSessionModal() {
                   type="button"
                   onClick={handleSkipDeck}
                   disabled={isSubmitting}
-                  className="inline-flex h-10 items-center gap-2 rounded-full border border-border/80 bg-white px-4 text-sm font-semibold text-muted transition hover:border-accent/60 hover:text-ink disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex h-11 shrink-0 items-center gap-2 rounded-full border border-slate-300/80 bg-white px-4 text-sm font-semibold text-slate-500 transition hover:border-slate-400 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <X className="h-4 w-4" />
+                  <X className="h-4 w-4 stroke-[2.2]" />
                   Skip deck
                 </button>
               </div>
 
-              <div className="mt-4">
-                <div className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-[0.14em] text-muted">
+              <div className="mt-5">
+                <div className="mb-2.5 flex items-center justify-between text-xs font-semibold uppercase tracking-[0.15em] text-muted">
                   <span>
                     Word {currentIndex + 1} of {words.length}
                   </span>
                   <span>{Math.round(progress * 100)}%</span>
                 </div>
-                <div className="h-2 overflow-hidden rounded-full bg-border/60">
+                <div className="h-2 overflow-hidden rounded-full bg-slate-300/80">
                   <div
-                    className="h-full rounded-full bg-accent transition-[width] duration-300"
+                    className="h-full rounded-full bg-[linear-gradient(90deg,#ff9f43_0%,#f97316_100%)] transition-[width] duration-300"
                     style={{ width: `${Math.max(8, progress * 100)}%` }}
                   />
                 </div>
               </div>
             </div>
 
-            <div className="space-y-4 p-5 sm:space-y-5 sm:p-6">
-              <div className={cn('rounded-2xl border p-5 transition-colors sm:p-6', cardToneClasses)}>
-                <p className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-muted">
+            <div className="bg-[radial-gradient(100%_100%_at_50%_0%,#323844_0%,#1f232b_46%,#151922_100%)] p-5 sm:p-6">
+              <div
+                className={cn(
+                  'rounded-2xl border border-white/12 bg-black/58 p-5 text-slate-50 backdrop-blur-[1px] transition-colors sm:p-6',
+                  submitResult === 'correct' && 'border-green-300/55 bg-green-900/18',
+                  submitResult === 'wrong' && 'border-red-300/55 bg-red-900/18'
+                )}
+              >
+                <p className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-slate-300/90">
                   <Clock3 className="h-3.5 w-3.5 text-accent" />
-                  {formatSavedTime(currentWord.savedAt)}
+                  {formatSavedTime(currentWord.savedAt).toUpperCase()}
                 </p>
-                <p className="mt-3 text-3xl font-bold tracking-tight text-ink sm:text-4xl">
+                <p className="mt-4 text-4xl font-bold tracking-tight text-white sm:text-[3.1rem]">
                   {currentWord.word}
                 </p>
 
-                <label className="mt-5 block">
-                  <span className="mb-2 inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-muted">
+                <label className="mt-6 block">
+                  <span className="mb-2.5 inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-slate-300/85">
                     <Languages className="h-3.5 w-3.5 text-accent" />
                     English translation
                   </span>
@@ -329,11 +325,13 @@ export function PracticeSessionModal() {
                     }}
                     disabled={isSubmitting || submitResult !== 'idle'}
                     className={cn(
-                      'h-12 w-full rounded-xl border px-3 text-base font-medium text-ink outline-none transition',
+                      'h-12 w-full rounded-xl border px-3.5 text-base font-semibold text-ink outline-none transition',
                       submitResult === 'correct' &&
-                        'border-green-400 bg-green-50 focus:border-green-500',
-                      submitResult === 'wrong' && 'border-red-400 bg-red-50 focus:border-red-500',
-                      submitResult === 'idle' && 'border-border/80 bg-white focus:border-accent'
+                        'border-green-400 bg-green-50/95 text-green-900 focus:border-green-500',
+                      submitResult === 'wrong' &&
+                        'border-red-400 bg-red-50/95 text-red-900 focus:border-red-500',
+                      submitResult === 'idle' &&
+                        'border-white/35 bg-white text-slate-900 focus:border-accent'
                     )}
                     placeholder="Type your translation"
                   />
@@ -342,7 +340,7 @@ export function PracticeSessionModal() {
                 {feedback ? (
                   <p
                     className={cn(
-                      'mt-3 inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium',
+                      'mt-3 inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold',
                       submitResult === 'correct' &&
                         'border border-green-300/70 bg-green-100/70 text-green-800',
                       submitResult === 'wrong' &&
@@ -350,29 +348,29 @@ export function PracticeSessionModal() {
                     )}
                   >
                     {submitResult === 'correct' ? (
-                      <CheckCircle2 className="h-4 w-4" />
+                      <CheckCircle2 className="h-4 w-4 stroke-[2.3]" />
                     ) : (
-                      <AlertCircle className="h-4 w-4" />
+                      <AlertCircle className="h-4 w-4 stroke-[2.3]" />
                     )}
                     {feedback}
                   </p>
                 ) : null}
 
                 {error ? (
-                  <p className="mt-3 rounded-lg border border-red-300/70 bg-red-100/70 px-3 py-2 text-sm font-medium text-red-800">
+                  <p className="mt-3 rounded-lg border border-red-300/70 bg-red-100/85 px-3 py-2 text-sm font-semibold text-red-800">
                     {error}
                   </p>
                 ) : null}
               </div>
 
-              <div className="flex flex-wrap items-center justify-end gap-2">
+              <div className="mt-5 flex flex-wrap items-center justify-end gap-2.5">
                 {submitResult === 'idle' ? (
                   <>
                     <button
                       type="button"
                       onClick={handleSkipCurrent}
                       disabled={isSubmitting}
-                      className="inline-flex h-11 items-center rounded-full border border-border/80 bg-white px-5 text-sm font-semibold text-muted transition hover:border-accent/60 hover:text-ink disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex h-11 items-center rounded-full border border-slate-300/75 bg-white px-5 text-sm font-semibold text-slate-500 transition hover:border-slate-400 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       Skip word
                     </button>
@@ -380,7 +378,7 @@ export function PracticeSessionModal() {
                       type="button"
                       onClick={handleSubmit}
                       disabled={isSubmitting || !answer.trim()}
-                      className="inline-flex h-11 items-center rounded-full bg-accent px-5 text-sm font-semibold text-white transition hover:bg-warm disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex h-11 items-center rounded-full bg-[linear-gradient(90deg,#ff9f43_0%,#f97316_100%)] px-5 text-sm font-semibold text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {isSubmitting ? (
                         <>
@@ -397,7 +395,7 @@ export function PracticeSessionModal() {
                     type="button"
                     onClick={() => void moveToNextWord()}
                     disabled={isSubmitting}
-                    className="inline-flex h-11 items-center rounded-full bg-accent px-5 text-sm font-semibold text-white transition hover:bg-warm disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex h-11 items-center rounded-full bg-[linear-gradient(90deg,#ff9f43_0%,#f97316_100%)] px-5 text-sm font-semibold text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {currentIndex >= words.length - 1 ? 'Finish review' : 'Next word'}
                   </button>
