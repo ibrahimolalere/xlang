@@ -3,7 +3,6 @@
 import {
   BookMarked,
   ChevronRight,
-  CirclePlay,
   Home,
   Settings,
   Sparkles,
@@ -14,6 +13,7 @@ import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 
 import { AuthControls } from '@/components/auth/auth-controls';
+import { BrandLogo } from '@/components/brand-logo';
 import { PracticeSessionModal } from '@/components/practice/practice-session-modal';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { LEVELS } from '@/lib/constants';
@@ -31,8 +31,11 @@ function AdminShell({ children }: AppShellProps) {
             href="/admin"
             className="inline-flex items-center gap-2 rounded-full px-2 py-1 text-xl font-bold tracking-tight text-ink transition hover:bg-panel sm:text-2xl"
           >
-            <Shield className="h-5 w-5 text-accent" />
-            XLang Admin
+            <BrandLogo priority />
+            <span className="inline-flex items-center gap-1.5">
+              <Shield className="h-5 w-5 text-accent" />
+              <span className="text-base font-semibold text-muted sm:text-lg">Admin</span>
+            </span>
           </Link>
 
           <div className="ml-auto flex items-center gap-2">
@@ -78,8 +81,7 @@ function LearnerShell({ children }: AppShellProps) {
             href="/"
             className="inline-flex items-center gap-2 rounded-full px-2 py-1 text-xl font-bold tracking-tight text-ink transition hover:bg-panel sm:text-2xl"
           >
-            <CirclePlay className="h-6 w-6 fill-accent text-accent" />
-            XLang
+            <BrandLogo priority />
           </Link>
 
           <div className="hidden flex-1 justify-center md:flex">

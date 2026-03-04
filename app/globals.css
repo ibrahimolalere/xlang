@@ -3,8 +3,8 @@
 @tailwind utilities;
 
 :root {
-  --font-sans: Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-heading: Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-sans: var(--font-outfit), "Helvetica Neue", Arial, sans-serif;
+  --font-heading: var(--font-outfit), "Helvetica Neue", Arial, sans-serif;
   --surface: 255 255 255;
   --panel: 248 248 248;
   --ink: 15 15 15;
@@ -36,6 +36,7 @@
 body {
   min-height: 100vh;
   font-family: var(--font-sans);
+  font-optical-sizing: auto;
   background: rgb(var(--surface));
   color: rgb(var(--ink));
   -webkit-font-smoothing: antialiased;
