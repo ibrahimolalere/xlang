@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { ExternalLink, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
+import { DailyReviewStory } from '@/components/practice/daily-review-story';
 import { useSupabaseAuth } from '@/components/auth/supabase-auth-provider';
 import {
   SAVED_WORDS_UPDATED_EVENT,
@@ -111,6 +112,8 @@ export function SavedWordsList() {
 
   return (
     <div className="space-y-4 sm:space-y-5">
+      <DailyReviewStory savedWords={savedWords} learnerKey={learnerKey} />
+
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm font-semibold text-muted">{savedWords.length} saved items</p>
         <button
