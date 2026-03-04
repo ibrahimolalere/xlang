@@ -33,7 +33,7 @@ export function LevelCard({ level }: LevelCardProps) {
           <p className="mt-2 text-sm leading-relaxed text-muted">
             Curated lessons, synced subtitles, and practical vocabulary drills.
           </p>
-          <span className="mt-4 inline-flex min-h-10 items-center gap-2 text-sm font-bold text-accent transition group-hover:translate-x-1">
+          <span className="mt-4 inline-flex min-h-10 items-center gap-2 text-sm font-bold text-[#F86A62] transition group-hover:translate-x-1">
             Open Level <ArrowRight className="h-4 w-4" />
           </span>
         </div>

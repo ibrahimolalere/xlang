@@ -46,13 +46,10 @@ export default async function VideoPage({ params }: VideoPageProps) {
       </Link>
 
       <div className="rounded-2xl border border-border/80 bg-panel p-5 sm:p-6">
-        <h1 className="inline-flex items-center gap-2 font-[var(--font-heading)] text-2xl font-bold tracking-tight text-ink sm:text-3xl md:text-4xl">
+        <h1 className="inline-flex items-center gap-2 font-[var(--font-heading)] text-xl font-bold tracking-tight text-ink sm:text-2xl md:text-[1.75rem]">
           <PlayCircle className="h-7 w-7 text-accent" />
           {video.title}
         </h1>
-        <p className="mt-2 max-w-3xl text-sm leading-relaxed text-muted sm:text-base">
-          {video.description}
-        </p>
       </div>
 
       <VideoPlayerWithTranscript video={video} transcript={transcript} />

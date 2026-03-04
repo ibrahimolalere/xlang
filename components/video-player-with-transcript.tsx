@@ -979,6 +979,12 @@ ${sentence.text}`
             void toggleContainerFullscreen();
           }}
         />
+
+        <div className="rounded-xl border border-border/80 bg-panel p-4 sm:rounded-2xl sm:p-5">
+          <p className="text-sm leading-relaxed text-muted sm:text-base">
+            {video.description}
+          </p>
+        </div>
       </div>
 
       <aside className="overflow-hidden rounded-2xl border border-border/80 bg-panel xl:flex xl:max-h-[78vh] xl:flex-col">
