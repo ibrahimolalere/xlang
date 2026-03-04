@@ -3,6 +3,7 @@
 import { Bookmark, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
+import { getCurrentStoryBatch, REVIEW_STORY_BATCH_SIZE } from '@/lib/review-story';
 import { cn } from '@/lib/utils';
 import { toggleSavedWord, type SavedWord } from '@/lib/vocabulary';
 import { normalizeWord, tokenizeSentence } from '@/lib/video/subtitle-utils';
@@ -12,7 +13,6 @@ interface DailyReviewStoryProps {
   learnerKey: string;
 }
 
-const MIN_WORDS_FOR_STORY = 10;
 const STORY_VIDEO_ID = 'daily-review-story';
 const STORY_VIDEO_TITLE = 'Daily Review Story';
 
@@ -25,7 +25,7 @@ const HIGHLIGHT_STYLES = [
 
 function buildStory(words: string[]) {
   const safe = [...words];
-  while (safe.length < MIN_WORDS_FOR_STORY) {
+  while (safe.length < REVIEW_STORY_BATCH_SIZE) {
     safe.push(words[words.length - 1] ?? 'Wort');
   }
 
@@ -59,27 +59,28 @@ export function DailyReviewStory({ savedWords, learnerKey }: DailyReviewStoryPro
   const [loadingTokenKey, setLoadingTokenKey] = useState<string | null>(null);
   const [translations, setTranslations] = useState<Record<string, string>>({});
   const [sessionSaved, setSessionSaved] = useState<Set<string>>(new Set());
+  const { words: storyBatchWords } = useMemo(() => getCurrentStoryBatch(savedWords), [savedWords]);
 
   const uniqueSavedWords = useMemo(() => {
     const seen = new Set<string>();
     const next: Array<{ normalized: string; original: string }> = [];
 
-    for (const word of savedWords) {
+    for (const word of storyBatchWords) {
       const normalized = normalizeWord(word.word || word.normalizedWord);
       if (!normalized || seen.has(normalized)) {
         continue;
       }
       seen.add(normalized);
       next.push({ normalized, original: word.word });
-      if (next.length >= MIN_WORDS_FOR_STORY) {
+      if (next.length >= REVIEW_STORY_BATCH_SIZE) {
         break;
       }
     }
 
     return next;
-  }, [savedWords]);
+  }, [storyBatchWords]);
 
-  const canBuildStory = uniqueSavedWords.length >= MIN_WORDS_FOR_STORY;
+  const canBuildStory = storyBatchWords.length >= REVIEW_STORY_BATCH_SIZE;
   const storyText = useMemo(
     () => (canBuildStory ? buildStory(uniqueSavedWords.map((entry) => entry.original)) : ''),
     [canBuildStory, uniqueSavedWords]
@@ -111,7 +112,7 @@ export function DailyReviewStory({ savedWords, learnerKey }: DailyReviewStoryPro
   }, [savedWords, learnerKey]);
 
   if (!canBuildStory) {
-    const needed = MIN_WORDS_FOR_STORY - uniqueSavedWords.length;
+    const needed = Math.max(0, REVIEW_STORY_BATCH_SIZE - storyBatchWords.length);
     return (
       <section className="rounded-2xl border border-border/80 bg-panel p-4 sm:p-5">
         <p className="inline-flex items-center gap-2 rounded-full bg-surface px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-muted">

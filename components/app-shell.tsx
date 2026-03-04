@@ -23,7 +23,13 @@ import { useSupabaseAuth } from '@/components/auth/supabase-auth-provider';
 import { PracticeSessionModal } from '@/components/practice/practice-session-modal';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { LEVELS } from '@/lib/constants';
+import { hasUnreadReviewStory, REVIEW_STORY_SEEN_EVENT } from '@/lib/review-story';
 import { cn } from '@/lib/utils';
+import {
+  getSavedWords,
+  SAVED_WORDS_UPDATED_EVENT,
+  syncSavedWordsFromServer
+} from '@/lib/vocabulary';
 
 interface AppShellProps {
   children: ReactNode;
@@ -73,7 +79,10 @@ function LearnerShell({ children }: AppShellProps) {
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const isHome = pathname === '/';
   const isSaved = pathname === '/saved';
+  const isReviewStory = pathname === '/review-story';
   const isSettings = pathname === '/settings';
+  const [hasNewReviewStory, setHasNewReviewStory] = useState(false);
+  const learnerKey = user?.id ?? 'guest';
   const authHref = useMemo(
     () => `/auth?next=${encodeURIComponent(pathname || '/')}`,
     [pathname]
@@ -102,6 +111,68 @@ function LearnerShell({ children }: AppShellProps) {
       document.body.style.overflow = previousOverflow;
     };
   }, [isMobileNavOpen]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const refreshIndicator = async () => {
+      const local = getSavedWords(learnerKey);
+      if (!cancelled) {
+        setHasNewReviewStory(hasUnreadReviewStory(learnerKey, local));
+      }
+
+      if (learnerKey !== 'guest') {
+        const synced = await syncSavedWordsFromServer(learnerKey);
+        if (!cancelled) {
+          setHasNewReviewStory(hasUnreadReviewStory(learnerKey, synced));
+        }
+      }
+    };
+
+    void refreshIndicator();
+
+    const onFocus = () => {
+      void refreshIndicator();
+    };
+
+    const onStorage = (event: StorageEvent) => {
+      if (!event.key || event.key.startsWith('xlang_saved_words')) {
+        void refreshIndicator();
+      }
+    };
+
+    const onSavedWordsUpdate = (event: Event) => {
+      const custom = event as CustomEvent<{ learnerKey?: string }>;
+      const eventLearnerKey = custom.detail?.learnerKey ?? 'guest';
+      if (eventLearnerKey === learnerKey) {
+        void refreshIndicator();
+      }
+    };
+
+    const onStorySeen = (event: Event) => {
+      const custom = event as CustomEvent<{ learnerKey?: string }>;
+      const eventLearnerKey = custom.detail?.learnerKey ?? 'guest';
+      if (eventLearnerKey === learnerKey) {
+        void refreshIndicator();
+      }
+    };
+
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('storage', onStorage);
+    window.addEventListener(SAVED_WORDS_UPDATED_EVENT, onSavedWordsUpdate as EventListener);
+    window.addEventListener(REVIEW_STORY_SEEN_EVENT, onStorySeen as EventListener);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener(
+        SAVED_WORDS_UPDATED_EVENT,
+        onSavedWordsUpdate as EventListener
+      );
+      window.removeEventListener(REVIEW_STORY_SEEN_EVENT, onStorySeen as EventListener);
+    };
+  }, [learnerKey]);
 
   const toggleSidebar = () => {
     if (typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches) {
@@ -198,17 +269,27 @@ function LearnerShell({ children }: AppShellProps) {
                 {expanded ? 'Saved Words' : null}
               </Link>
               <Link
-                href="/saved"
+                href="/review-story"
                 onClick={mobile ? () => setIsMobileNavOpen(false) : undefined}
                 className={cn(
-                  'inline-flex h-11 w-full items-center rounded-xl text-[1.03rem] font-medium text-ink/90 transition hover:bg-surface',
-                  expanded ? 'gap-3 px-3' : 'justify-center'
+                  'relative inline-flex h-11 w-full items-center rounded-xl text-[1.03rem] font-medium transition',
+                  expanded ? 'gap-3 px-3' : 'justify-center',
+                  isReviewStory ? 'bg-surface text-ink' : 'text-ink/90 hover:bg-surface'
                 )}
-                title={expanded ? undefined : 'Daily Review'}
-                aria-label="Daily review"
+                title={expanded ? undefined : 'Review Story'}
+                aria-label="Review story"
               >
                 <Sparkles className="h-[1.15rem] w-[1.15rem]" />
-                {expanded ? 'Daily Review' : null}
+                {expanded ? (
+                  <span className="inline-flex items-center gap-2">
+                    {hasNewReviewStory ? (
+                      <span className="h-2 w-2 rounded-full bg-sky-500" />
+                    ) : null}
+                    Review Story
+                  </span>
+                ) : hasNewReviewStory ? (
+                  <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-sky-500" />
+                ) : null}
               </Link>
             </div>
           </div>
@@ -355,11 +436,18 @@ function LearnerShell({ children }: AppShellProps) {
               Saved
             </Link>
             <Link
-              href="/saved"
-              className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-border/80 bg-panel px-3 text-xs font-semibold text-muted"
+              href="/review-story"
+              className={`inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-semibold ${
+                isReviewStory
+                  ? 'border-accent/50 bg-accent/10 text-accent'
+                  : 'border-border/80 bg-panel text-muted'
+              }`}
             >
               <Sparkles className="h-4 w-4" />
-              Review
+              {hasNewReviewStory ? (
+                <span className="h-1.5 w-1.5 rounded-full bg-sky-500" />
+              ) : null}
+              Story
             </Link>
             <Link
               href="/settings"
