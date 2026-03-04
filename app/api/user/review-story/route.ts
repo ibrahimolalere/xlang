@@ -6,6 +6,7 @@ import { normalizeWord } from '@/lib/video/subtitle-utils';
 export const runtime = 'nodejs';
 
 const storyCache = new Map<string, string>();
+const OPENAI_TIMEOUT_MS = 8000;
 
 function sanitizeWords(input: unknown) {
   if (!Array.isArray(input)) {
@@ -90,21 +91,26 @@ export async function POST(request: Request) {
 
     const client = new OpenAI({ apiKey });
 
-    const completion = await client.chat.completions.create({
-      model: 'gpt-4o-mini',
-      temperature: 0.2,
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You are a German tutor. Write a very short, coherent German story for language learners (A1-A2 style). Keep it 2-3 sentences and natural. You must include every provided word exactly as written at least once. Do not output lists, only the story text.'
-        },
-        {
-          role: 'user',
-          content: `Use exactly these words in the story: ${words.join(', ')}`
-        }
-      ]
-    });
+    const completion = await Promise.race([
+      client.chat.completions.create({
+        model: 'gpt-4o-mini',
+        temperature: 0.2,
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You are a German tutor. Write a very short, coherent German story for language learners (A1-A2 style). Keep it 2-3 sentences and natural. You must include every provided word exactly as written at least once. Do not output lists, only the story text.'
+          },
+          {
+            role: 'user',
+            content: `Use exactly these words in the story: ${words.join(', ')}`
+          }
+        ]
+      }),
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('OpenAI story generation timed out.')), OPENAI_TIMEOUT_MS);
+      })
+    ]);
 
     const raw = completion.choices[0]?.message?.content?.trim() ?? '';
     const nextStory = ensureWordsIncluded(raw || fallback, words);

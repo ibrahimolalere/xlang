@@ -138,13 +138,22 @@ export function DailyReviewStory({ savedWords, learnerKey }: DailyReviewStoryPro
       setStoryError(null);
 
       try {
-        const response = await fetch('/api/user/review-story', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ words: storyInputWords })
-        });
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 8500);
+        const response = await (async () => {
+          try {
+            return await fetch('/api/user/review-story', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ words: storyInputWords }),
+              signal: controller.signal
+            });
+          } finally {
+            clearTimeout(timeout);
+          }
+        })();
 
         if (!response.ok) {
           throw new Error(`Story generation failed (${response.status})`);
