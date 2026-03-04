@@ -1,6 +1,6 @@
 'use client';
 
-import { Bookmark, Sparkles } from 'lucide-react';
+import { Bookmark, Loader2, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { getCurrentStoryBatch, REVIEW_STORY_BATCH_SIZE } from '@/lib/review-story';
@@ -14,7 +14,8 @@ interface DailyReviewStoryProps {
 }
 
 const STORY_VIDEO_ID = 'daily-review-story';
-const STORY_VIDEO_TITLE = 'Daily Review Story';
+const STORY_VIDEO_TITLE = 'Review Story';
+const STORY_CACHE_KEY_PREFIX = 'xlang:review-story';
 
 const HIGHLIGHT_STYLES = [
   'bg-blue-500/18 text-blue-700 ring-1 ring-blue-400/45 dark:bg-blue-500/28 dark:text-blue-200 dark:ring-blue-300/45',
@@ -23,7 +24,7 @@ const HIGHLIGHT_STYLES = [
   'bg-sky-500/18 text-sky-700 ring-1 ring-sky-400/45 dark:bg-sky-500/28 dark:text-sky-200 dark:ring-sky-300/45'
 ] as const;
 
-function buildStory(words: string[]) {
+function buildFallbackStory(words: string[]) {
   const safe = [...words];
   while (safe.length < REVIEW_STORY_BATCH_SIZE) {
     safe.push(words[words.length - 1] ?? 'Wort');
@@ -31,9 +32,9 @@ function buildStory(words: string[]) {
 
   const [w1, w2, w3, w4, w5, w6, w7, w8, w9, w10] = safe;
   return [
-    `Heute lerne ich ${w1}, ${w2} und ${w3}.`,
-    `Danach treffe ich ${w4} und wir sprechen über ${w5}, ${w6} und ${w7}.`,
-    `Am Abend wiederhole ich ${w8}, ${w9} und ${w10}.`
+    `Heute übe ich ${w1}, ${w2} und ${w3}.`,
+    `Im Gespräch benutze ich ${w4}, ${w5}, ${w6} und ${w7}.`,
+    `Am Ende wiederhole ich ${w8}, ${w9} und ${w10}.`
   ].join(' ');
 }
 
@@ -54,24 +55,45 @@ async function fetchTranslation(value: string) {
   return String(payload.translation ?? 'translation unavailable').trim() || 'translation unavailable';
 }
 
+function storyContainsWord(story: string, word: string) {
+  const storyTokens = tokenizeSentence(story).map((token) => normalizeWord(token)).filter(Boolean);
+  const wordNormalized = normalizeWord(word);
+  if (!wordNormalized) {
+    return false;
+  }
+  return storyTokens.includes(wordNormalized);
+}
+
+function buildStoryCacheKey(learnerKey: string, batchIndex: number, words: string[]) {
+  const digest = words.map((word) => normalizeWord(word)).join('|');
+  return `${STORY_CACHE_KEY_PREFIX}:${learnerKey}:${batchIndex}:${digest}`;
+}
+
 export function DailyReviewStory({ savedWords, learnerKey }: DailyReviewStoryProps) {
   const [activeTokenKey, setActiveTokenKey] = useState<string | null>(null);
   const [loadingTokenKey, setLoadingTokenKey] = useState<string | null>(null);
   const [translations, setTranslations] = useState<Record<string, string>>({});
   const [sessionSaved, setSessionSaved] = useState<Set<string>>(new Set());
-  const { words: storyBatchWords } = useMemo(() => getCurrentStoryBatch(savedWords), [savedWords]);
+  const [storyText, setStoryText] = useState('');
+  const [isStoryLoading, setIsStoryLoading] = useState(false);
+  const [storyError, setStoryError] = useState<string | null>(null);
+  const { words: storyBatchWords, batchIndex } = useMemo(
+    () => getCurrentStoryBatch(savedWords),
+    [savedWords]
+  );
 
-  const uniqueSavedWords = useMemo(() => {
+  const storyInputWords = useMemo(() => {
     const seen = new Set<string>();
-    const next: Array<{ normalized: string; original: string }> = [];
+    const next: string[] = [];
 
     for (const word of storyBatchWords) {
-      const normalized = normalizeWord(word.word || word.normalizedWord);
+      const original = String(word.word || word.normalizedWord || '').trim();
+      const normalized = normalizeWord(original);
       if (!normalized || seen.has(normalized)) {
         continue;
       }
       seen.add(normalized);
-      next.push({ normalized, original: word.word });
+      next.push(original);
       if (next.length >= REVIEW_STORY_BATCH_SIZE) {
         break;
       }
@@ -81,20 +103,110 @@ export function DailyReviewStory({ savedWords, learnerKey }: DailyReviewStoryPro
   }, [storyBatchWords]);
 
   const canBuildStory = storyBatchWords.length >= REVIEW_STORY_BATCH_SIZE;
-  const storyText = useMemo(
-    () => (canBuildStory ? buildStory(uniqueSavedWords.map((entry) => entry.original)) : ''),
-    [canBuildStory, uniqueSavedWords]
-  );
+  const storyCacheKey = useMemo(() => {
+    if (!canBuildStory || batchIndex < 0) {
+      return '';
+    }
+    return buildStoryCacheKey(learnerKey, batchIndex, storyInputWords);
+  }, [batchIndex, canBuildStory, learnerKey, storyInputWords]);
+
+  useEffect(() => {
+    setSessionSaved(new Set());
+  }, [savedWords, learnerKey]);
+
+  useEffect(() => {
+    if (!canBuildStory || storyInputWords.length === 0) {
+      setStoryText('');
+      setStoryError(null);
+      setIsStoryLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const hydrateStory = async () => {
+      if (typeof window !== 'undefined' && storyCacheKey) {
+        const cached = window.localStorage.getItem(storyCacheKey)?.trim();
+        if (cached) {
+          setStoryText(cached);
+          setStoryError(null);
+          return;
+        }
+      }
+
+      setIsStoryLoading(true);
+      setStoryError(null);
+
+      try {
+        const response = await fetch('/api/user/review-story', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ words: storyInputWords })
+        });
+
+        if (!response.ok) {
+          throw new Error(`Story generation failed (${response.status})`);
+        }
+
+        const payload = (await response.json()) as { story?: string };
+        let nextStory = String(payload.story ?? '').trim();
+        if (!nextStory) {
+          throw new Error('Story generation returned empty content.');
+        }
+
+        const missing = storyInputWords.filter((word) => !storyContainsWord(nextStory, word));
+        if (missing.length > 0) {
+          nextStory = `${nextStory} Außerdem wiederhole ich ${missing.join(', ')}.`;
+        }
+
+        if (cancelled) {
+          return;
+        }
+
+        setStoryText(nextStory);
+        if (typeof window !== 'undefined' && storyCacheKey) {
+          window.localStorage.setItem(storyCacheKey, nextStory);
+        }
+      } catch {
+        if (cancelled) {
+          return;
+        }
+
+        const fallback = buildFallbackStory(storyInputWords);
+        setStoryText(fallback);
+        setStoryError('Using fallback story for now.');
+        if (typeof window !== 'undefined' && storyCacheKey) {
+          window.localStorage.setItem(storyCacheKey, fallback);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsStoryLoading(false);
+        }
+      }
+    };
+
+    void hydrateStory();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canBuildStory, storyCacheKey, storyInputWords]);
 
   const storyTokens = useMemo(() => tokenizeSentence(storyText), [storyText]);
 
   const highlightMap = useMemo(() => {
     const next = new Map<string, string>();
-    uniqueSavedWords.forEach((entry, index) => {
-      next.set(entry.normalized, HIGHLIGHT_STYLES[index % HIGHLIGHT_STYLES.length]);
+    storyInputWords.forEach((word, index) => {
+      const normalized = normalizeWord(word);
+      if (!normalized || next.has(normalized)) {
+        return;
+      }
+      next.set(normalized, HIGHLIGHT_STYLES[index % HIGHLIGHT_STYLES.length]);
     });
     return next;
-  }, [uniqueSavedWords]);
+  }, [storyInputWords]);
 
   const savedNormalizedSet = useMemo(() => {
     const next = new Set<string>();
@@ -107,17 +219,13 @@ export function DailyReviewStory({ savedWords, learnerKey }: DailyReviewStoryPro
     return next;
   }, [savedWords]);
 
-  useEffect(() => {
-    setSessionSaved(new Set());
-  }, [savedWords, learnerKey]);
-
   if (!canBuildStory) {
     const needed = Math.max(0, REVIEW_STORY_BATCH_SIZE - storyBatchWords.length);
     return (
       <section className="rounded-2xl border border-border/80 bg-panel p-4 sm:p-5">
         <p className="inline-flex items-center gap-2 rounded-full bg-surface px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-muted">
           <Sparkles className="h-3.5 w-3.5 text-accent" />
-          Daily Review Story
+          Review Story
         </p>
         <p className="mt-3 text-sm font-semibold text-muted sm:text-base">
           Save {needed} more {needed === 1 ? 'word' : 'words'} to unlock your short story practice.
@@ -130,111 +238,124 @@ export function DailyReviewStory({ savedWords, learnerKey }: DailyReviewStoryPro
     <section className="rounded-2xl border border-border/80 bg-panel p-4 sm:p-5">
       <p className="inline-flex items-center gap-2 rounded-full bg-surface px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-muted">
         <Sparkles className="h-3.5 w-3.5 text-accent" />
-        Daily Review Story
+        Review Story
       </p>
       <p className="mt-3 text-xs font-semibold uppercase tracking-[0.14em] text-muted">
         Tap any word to translate. Saved words are color-highlighted.
       </p>
 
       <div className="mt-4 rounded-xl border border-border/80 bg-surface p-4 sm:p-5">
-        <p className="font-[var(--font-heading)] text-xl font-bold leading-relaxed text-ink sm:text-2xl">
-          {storyTokens.map((token, index) => {
-            const normalized = normalizeWord(token);
-            const tokenKey = `${normalized || 'sep'}-${index}`;
+        {isStoryLoading ? (
+          <p className="inline-flex items-center gap-2 text-sm font-semibold text-muted">
+            <Loader2 className="h-4 w-4 animate-spin text-accent" />
+            Generating a coherent story from your saved words...
+          </p>
+        ) : (
+          <p className="font-[var(--font-heading)] text-xl font-bold leading-relaxed text-ink sm:text-2xl">
+            {storyTokens.map((token, index) => {
+              const normalized = normalizeWord(token);
+              const tokenKey = `${normalized || 'sep'}-${index}`;
 
-            if (!normalized) {
-              return <span key={tokenKey}>{token}</span>;
-            }
+              if (!normalized) {
+                return <span key={tokenKey}>{token}</span>;
+              }
 
-            const highlightClass = highlightMap.get(normalized);
-            const isSaved = savedNormalizedSet.has(normalized) || sessionSaved.has(normalized);
-            const isActive = activeTokenKey === tokenKey;
-            const translation = translations[normalized];
+              const highlightClass = highlightMap.get(normalized);
+              const isSaved = savedNormalizedSet.has(normalized) || sessionSaved.has(normalized);
+              const isActive = activeTokenKey === tokenKey;
+              const translation = translations[normalized];
 
-            return (
-              <span key={tokenKey} className="relative inline-block">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (isActive) {
-                      setActiveTokenKey(null);
-                      return;
-                    }
+              return (
+                <span key={tokenKey} className="relative inline-block">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (isActive) {
+                        setActiveTokenKey(null);
+                        return;
+                      }
 
-                    setActiveTokenKey(tokenKey);
-                    if (translations[normalized]) {
-                      return;
-                    }
+                      setActiveTokenKey(tokenKey);
+                      if (translations[normalized]) {
+                        return;
+                      }
 
-                    setLoadingTokenKey(tokenKey);
-                    try {
-                      const translated = await fetchTranslation(normalized);
-                      setTranslations((previous) => ({
-                        ...previous,
-                        [normalized]: translated
-                      }));
-                    } catch {
-                      setTranslations((previous) => ({
-                        ...previous,
-                        [normalized]: 'translation unavailable'
-                      }));
-                    } finally {
-                      setLoadingTokenKey(null);
-                    }
-                  }}
-                  className={cn(
-                    'inline rounded px-1 py-0.5 transition hover:bg-accent/10',
-                    highlightClass
-                  )}
-                >
-                  {token}
-                </button>
+                      setLoadingTokenKey(tokenKey);
+                      try {
+                        const translated = await fetchTranslation(normalized);
+                        setTranslations((previous) => ({
+                          ...previous,
+                          [normalized]: translated
+                        }));
+                      } catch {
+                        setTranslations((previous) => ({
+                          ...previous,
+                          [normalized]: 'translation unavailable'
+                        }));
+                      } finally {
+                        setLoadingTokenKey(null);
+                      }
+                    }}
+                    className={cn(
+                      'inline rounded px-1 py-0.5 transition hover:bg-accent/10',
+                      highlightClass
+                    )}
+                  >
+                    {token}
+                  </button>
 
-                {isActive ? (
-                  <span className="absolute bottom-full left-1/2 z-20 mb-1.5 flex -translate-x-1/2 items-center gap-2.5 whitespace-nowrap rounded-full border border-border/80 bg-panel px-3 py-2 text-xs font-semibold text-ink sm:text-sm">
-                    <span className="text-xs font-medium sm:text-sm">
-                      {loadingTokenKey === tokenKey ? '...' : (translation ?? 'translation unavailable')}
+                  {isActive ? (
+                    <span className="absolute bottom-full left-1/2 z-20 mb-1.5 flex -translate-x-1/2 items-center gap-2.5 whitespace-nowrap rounded-full border border-border/80 bg-panel px-3 py-2 text-xs font-semibold text-ink sm:text-sm">
+                      <span className="text-xs font-medium sm:text-sm">
+                        {loadingTokenKey === tokenKey
+                          ? '...'
+                          : (translation ?? 'translation unavailable')}
+                      </span>
+
+                      {!isSaved ? (
+                        <button
+                          type="button"
+                          className="inline-flex items-center justify-center rounded-md border border-accent bg-accent/10 p-1.5 text-accent transition hover:bg-accent/20"
+                          onClick={async (event) => {
+                            event.stopPropagation();
+                            const translationText =
+                              translations[normalized] ?? 'translation unavailable';
+
+                            await Promise.resolve(
+                              toggleSavedWord({
+                                learnerKey,
+                                word: token,
+                                normalizedWord: normalized,
+                                translation: translationText,
+                                sentence: storyText,
+                                videoId: STORY_VIDEO_ID,
+                                videoTitle: STORY_VIDEO_TITLE
+                              })
+                            );
+
+                            setSessionSaved((previous) => {
+                              const next = new Set(previous);
+                              next.add(normalized);
+                              return next;
+                            });
+                          }}
+                          aria-label="Save word"
+                          title="Save word"
+                        >
+                          <Bookmark className="h-4 w-4" />
+                        </button>
+                      ) : null}
                     </span>
+                  ) : null}
+                </span>
+              );
+            })}
+          </p>
+        )}
 
-                    {!isSaved ? (
-                      <button
-                        type="button"
-                        className="inline-flex items-center justify-center rounded-md border border-accent bg-accent/10 p-1.5 text-accent transition hover:bg-accent/20"
-                        onClick={async (event) => {
-                          event.stopPropagation();
-                          const translationText =
-                            translations[normalized] ?? 'translation unavailable';
-
-                          await Promise.resolve(
-                            toggleSavedWord({
-                              learnerKey,
-                              word: token,
-                              normalizedWord: normalized,
-                              translation: translationText,
-                              sentence: storyText,
-                              videoId: STORY_VIDEO_ID,
-                              videoTitle: STORY_VIDEO_TITLE
-                            })
-                          );
-
-                          setSessionSaved((previous) => {
-                            const next = new Set(previous);
-                            next.add(normalized);
-                            return next;
-                          });
-                        }}
-                        aria-label="Save word"
-                        title="Save word"
-                      >
-                        <Bookmark className="h-4 w-4" />
-                      </button>
-                    ) : null}
-                  </span>
-                ) : null}
-              </span>
-            );
-          })}
-        </p>
+        {storyError ? (
+          <p className="mt-3 text-xs font-medium text-muted">{storyError}</p>
+        ) : null}
       </div>
     </section>
   );
