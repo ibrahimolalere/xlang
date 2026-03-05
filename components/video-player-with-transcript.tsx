@@ -1,6 +1,6 @@
 'use client';
 
-import { Bookmark, Eye, EyeOff, Minimize2 } from 'lucide-react';
+import { Minimize2 } from 'lucide-react';
 import ReactPlayer from 'react-player';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, SyntheticEvent } from 'react';
@@ -8,13 +8,16 @@ import type { CSSProperties, SyntheticEvent } from 'react';
 import { useSupabaseAuth } from '@/components/auth/supabase-auth-provider';
 import { FullscreenSubtitleOverlay } from '@/components/video-player/fullscreen-subtitle-overlay';
 import { PlaybackControls } from '@/components/video-player/playback-controls';
+import {
+  TranscriptPanel,
+  type ActivePhraseSelection
+} from '@/components/video-player/transcript-panel';
 import { cn, formatSeconds, getPlayableVideoUrl } from '@/lib/utils';
 import {
   findCurrentSentence,
   formatVttTime,
   normalizePhrase,
-  normalizeWord,
-  tokenizeSentence
+  normalizeWord
 } from '@/lib/video/subtitle-utils';
 import { getSavedWords, syncSavedWordsFromServer, toggleSavedWord } from '@/lib/vocabulary';
 import type { TranscriptSentence, Video } from '@/types/database';
@@ -88,13 +91,7 @@ export function VideoPlayerWithTranscript({
   const [activeWordKey, setActiveWordKey] = useState<string | null>(null);
   const [loadingWordKey, setLoadingWordKey] = useState<string | null>(null);
   const [wordTranslations, setWordTranslations] = useState<Record<string, string>>({});
-  const [activePhrase, setActivePhrase] = useState<{
-    sentenceId: string;
-    phraseKey: string;
-    normalized: string;
-    text: string;
-    sentenceText: string;
-  } | null>(null);
+  const [activePhrase, setActivePhrase] = useState<ActivePhraseSelection | null>(null);
   const [loadingPhraseKey, setLoadingPhraseKey] = useState<string | null>(null);
   const [phraseTranslations, setPhraseTranslations] = useState<Record<string, string>>({});
   const [sentenceTranslations, setSentenceTranslations] = useState<Record<string, string>>({});
@@ -104,6 +101,7 @@ export function VideoPlayerWithTranscript({
   const [isPausedByWordTap, setIsPausedByWordTap] = useState(false);
   const [showFullscreenSeekBar, setShowFullscreenSeekBar] = useState(true);
   const sentenceTranslationRequestedRef = useRef<Set<string>>(new Set());
+  const translationRequestCacheRef = useRef(new Map<string, Promise<string>>());
 
   const getVideoElement = () =>
     playerRef.current?.getInternalPlayer?.() as
@@ -367,6 +365,13 @@ ${sentence.text}`
     [playedSeconds, transcript]
   );
   const currentSentenceId = currentSentence?.id;
+  const currentSentenceIndex = useMemo(
+    () =>
+      currentSentenceId
+        ? transcript.findIndex((sentence) => sentence.id === currentSentenceId)
+        : -1,
+    [currentSentenceId, transcript]
+  );
   const isInteractiveFullscreen = fullscreenMode === 'container' || isSimulatedFullscreen;
   const isPortraitVideo = videoOrientation === 'portrait';
   const isSquareVideo = videoOrientation === 'square';
@@ -530,57 +535,103 @@ ${sentence.text}`
   const stopOverlayEvent = (event: React.SyntheticEvent) => {
     event.preventDefault();
     event.stopPropagation();
+    revealFullscreenSeekBar();
   };
 
-  const fetchTranslation = useCallback(async (
-    payload: { word?: string; text?: string },
-    timeoutMs = 4500
-  ) => {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const fetchTranslation = useCallback(
+    async (payload: { word?: string; text?: string }, timeoutMs = 4500) => {
+      const rawWord = payload.word?.trim();
+      const rawText = payload.text?.trim();
+      const requestKey = rawWord
+        ? `w:${rawWord.toLowerCase()}`
+        : `t:${(rawText ?? '').toLowerCase()}`;
 
-    try {
-      const response = await fetch('/api/translate-word', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        signal: controller.signal
+      if (!requestKey || requestKey === 't:') {
+        return 'translation unavailable';
+      }
+
+      const existingRequest = translationRequestCacheRef.current.get(requestKey);
+      if (existingRequest) {
+        return existingRequest;
+      }
+
+      const requestPromise = (async () => {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+        try {
+          const response = await fetch('/api/translate-word', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            signal: controller.signal
+          });
+
+          const result = (await response
+            .json()
+            .catch(() => ({ translation: 'translation unavailable' }))) as {
+            translation?: string;
+          };
+
+          return result.translation ?? 'translation unavailable';
+        } catch {
+          return 'translation unavailable';
+        } finally {
+          clearTimeout(timeout);
+        }
+      })();
+
+      translationRequestCacheRef.current.set(requestKey, requestPromise);
+      void requestPromise.then((value) => {
+        if (value === 'translation unavailable') {
+          translationRequestCacheRef.current.delete(requestKey);
+        }
       });
-
-      const result = (await response
-        .json()
-        .catch(() => ({ translation: 'translation unavailable' }))) as {
-        translation?: string;
-      };
-
-      return result.translation ?? 'translation unavailable';
-    } catch {
-      return 'translation unavailable';
-    } finally {
-      clearTimeout(timeout);
-    }
-  }, []);
+      return requestPromise;
+    },
+    []
+  );
 
   useEffect(() => {
     setSentenceTranslations({});
     sentenceTranslationRequestedRef.current = new Set();
+    translationRequestCacheRef.current = new Map();
   }, [video.id]);
 
   useEffect(() => {
-    if (!transcript.length) {
+    if (!showSentenceTranslations || !transcript.length) {
       return;
     }
 
     let cancelled = false;
 
-    const queue = transcript.filter(
+    const centerIndex = currentSentenceIndex >= 0 ? currentSentenceIndex : 0;
+    const windowStart = Math.max(centerIndex - 10, 0);
+    const windowEnd = Math.min(centerIndex + 14, transcript.length - 1);
+    const windowCandidates: TranscriptSentence[] = [];
+
+    for (let index = windowStart; index <= windowEnd; index += 1) {
+      windowCandidates.push(transcript[index]);
+    }
+
+    if (windowStart > 0) {
+      // Preload the first few lines so users entering mid-video still see immediate context.
+      for (let index = 0; index < Math.min(6, transcript.length); index += 1) {
+        const sentence = transcript[index];
+        if (!windowCandidates.some((candidate) => candidate.id === sentence.id)) {
+          windowCandidates.push(sentence);
+        }
+      }
+    }
+
+    const queue = windowCandidates.filter(
       (sentence) => !sentenceTranslationRequestedRef.current.has(sentence.id)
     );
     queue.forEach((sentence) => {
       sentenceTranslationRequestedRef.current.add(sentence.id);
     });
 
-    const workerCount = Math.min(6, queue.length);
+    const workerCount = Math.min(3, queue.length);
 
     const runWorker = async () => {
       while (!cancelled) {
@@ -611,7 +662,7 @@ ${sentence.text}`
     return () => {
       cancelled = true;
     };
-  }, [fetchTranslation, transcript]);
+  }, [currentSentenceIndex, fetchTranslation, showSentenceTranslations, transcript]);
 
   const toggleContainerFullscreen = async () => {
     const container = playerViewportRef.current as
@@ -620,6 +671,7 @@ ${sentence.text}`
     const doc = document as Document & {
       webkitExitFullscreen?: () => Promise<void> | void;
     };
+    const videoElement = getVideoElement();
 
     if (!container) {
       return;
@@ -651,6 +703,10 @@ ${sentence.text}`
       }
       if (doc.webkitExitFullscreen) {
         await doc.webkitExitFullscreen();
+        return;
+      }
+      if (videoElement?.webkitExitFullscreen) {
+        videoElement.webkitExitFullscreen();
         return;
       }
     } catch {
@@ -892,7 +948,7 @@ ${sentence.text}`
           {isInteractiveFullscreen ? (
             <button
               type="button"
-              className="absolute left-1/2 top-3 z-40 inline-flex h-11 min-w-11 -translate-x-1/2 items-center justify-center gap-1 rounded-full border border-white/30 bg-black/60 px-3 text-white backdrop-blur-sm transition hover:bg-black/75"
+              className="absolute left-1/2 top-3 z-[70] inline-flex h-11 min-w-11 -translate-x-1/2 items-center justify-center gap-1 rounded-full border border-white/30 bg-black/60 px-3 text-white backdrop-blur-sm transition hover:bg-black/75"
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
@@ -916,6 +972,7 @@ ${sentence.text}`
               videoId={video.id}
               overlayRef={fullscreenOverlayRef}
               onOverlayInteract={stopOverlayEvent}
+              onUserInteraction={revealFullscreenSeekBar}
               onWordClick={handleWordClick}
               onSaveWord={handleSaveWordForLater}
             />
@@ -931,7 +988,7 @@ ${sentence.text}`
           ) : null}
           <div
             className={cn(
-              'absolute inset-x-0 bottom-0 z-40 bg-gradient-to-t px-2 pb-2 pt-10 transition-all duration-100 sm:px-3',
+              'absolute inset-x-0 bottom-0 z-[35] bg-gradient-to-t px-2 pb-2 pt-10 transition-all duration-100 sm:px-3',
               isInteractiveFullscreen
                 ? 'from-black/80 via-black/30 to-transparent'
                 : 'from-black/68 via-black/26 to-transparent',
@@ -940,7 +997,7 @@ ${sentence.text}`
                 : 'pointer-events-none translate-y-2 opacity-0'
             )}
           >
-            <div className="pointer-events-auto w-full">
+            <div className="pointer-events-none w-full">
               <div
                 className={cn(
                   'mb-1.5 flex items-center justify-between text-[11px] font-semibold sm:text-xs',
@@ -957,7 +1014,7 @@ ${sentence.text}`
                 step={0.1}
                 value={durationSeconds > 0 ? safeFullscreenPlayed : 0}
                 onChange={(event) => handleSeek(Number(event.target.value))}
-                className="yt-progress-range yt-progress-range--dark w-full"
+                className="yt-progress-range yt-progress-range--dark pointer-events-auto w-full"
                 style={fullscreenProgressStyle}
                 aria-label={
                   isInteractiveFullscreen ? 'Seek video in fullscreen' : 'Seek video'
@@ -987,198 +1044,29 @@ ${sentence.text}`
         </div>
       </div>
 
-      <aside className="overflow-hidden rounded-2xl border border-border/80 bg-panel xl:flex xl:max-h-[78vh] xl:flex-col">
-        <div className="sticky top-0 z-10 border-b border-border/80 bg-panel/95 px-4 py-4 backdrop-blur sm:px-5">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h2 className="text-2xl font-bold text-ink">Transcript</h2>
-              <p className="mt-1 text-sm font-medium text-muted">
-                Listen your way: show or hide English support while following German.
-              </p>
-            </div>
-            <button
-              type="button"
-              className={cn(
-                'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border transition',
-                showSentenceTranslations
-                  ? 'border-accent bg-accent/10 text-accent'
-                  : 'border-border/80 bg-surface text-muted hover:border-accent hover:text-accent'
-              )}
-              onClick={() => setShowSentenceTranslations((previous) => !previous)}
-              aria-label={
-                showSentenceTranslations
-                  ? 'Hide English translations'
-                  : 'Show English translations'
-              }
-              title={
-                showSentenceTranslations
-                  ? 'Hide English translations'
-                  : 'Show English translations'
-              }
-            >
-              {showSentenceTranslations ? (
-                <EyeOff className="h-4 w-4" />
-              ) : (
-                <Eye className="h-4 w-4" />
-              )}
-            </button>
-          </div>
-        </div>
-
-        <div className="max-h-[56vh] space-y-2.5 overflow-y-auto px-4 pb-4 pt-3 sm:max-h-[62vh] sm:px-5 sm:pb-5 xl:max-h-none xl:flex-1">
-          {transcript.length === 0 ? (
-            <p className="rounded-xl border border-border/80 bg-surface p-4 text-sm text-muted">
-              Transcript is not available yet for this video.
-            </p>
-          ) : null}
-          {transcript.map((sentence) => {
-            const isActive = sentence.id === currentSentenceId;
-            const hasActivePhrase = activePhrase?.sentenceId === sentence.id;
-            const phraseTranslation = hasActivePhrase
-              ? phraseTranslations[activePhrase.normalized]
-              : undefined;
-            const isPhraseSaved = hasActivePhrase
-              ? savedWordsSet.has(`${video.id}:${activePhrase.normalized}`)
-              : false;
-
-            return (
-              <div
-                key={sentence.id}
-                ref={(node) => {
-                  sentenceRefs.current[sentence.id] = node;
-                }}
-                className={cn(
-                  'rounded-xl border p-3 transition sm:p-4',
-                  isActive
-                    ? 'border-accent bg-accent/10'
-                    : 'border-border/80 bg-surface hover:border-accent/50'
-                )}
-              >
-                <div
-                  className="w-full cursor-pointer text-left"
-                  onClick={() => {
-                    const selected = window.getSelection()?.toString().trim();
-                    if (selected) {
-                      return;
-                    }
-                    handleSeek(sentence.start_time);
-                  }}
-                  onMouseUp={(event) => {
-                    void handlePhraseSelection(event, sentence);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      handleSeek(sentence.start_time);
-                    }
-                  }}
-                  role="button"
-                  tabIndex={0}
-                >
-                  {hasActivePhrase && activePhrase ? (
-                    <div className="mb-2 mt-2 inline-flex items-center gap-2.5 rounded-full border border-border/80 bg-panel px-3 py-2 text-xs font-semibold text-ink sm:text-sm">
-                      <span className="text-xs font-medium sm:text-sm">
-                        {loadingPhraseKey === activePhrase.phraseKey
-                          ? '...'
-                          : (phraseTranslation ?? 'translation unavailable')}
-                      </span>
-                      <button
-                        type="button"
-                        className={cn(
-                          'inline-flex items-center justify-center rounded-md border p-1.5 transition',
-                          isPhraseSaved
-                            ? 'border-warm bg-warm/15 text-warm'
-                            : 'border-accent bg-accent/10 text-accent hover:bg-accent/20'
-                        )}
-                        onClick={(event) => handleTogglePhraseSave(event, activePhrase)}
-                        disabled={loadingPhraseKey === activePhrase.phraseKey}
-                        aria-label={isPhraseSaved ? 'Unsave phrase' : 'Save phrase'}
-                        title={isPhraseSaved ? 'Unsave phrase' : 'Save phrase'}
-                      >
-                        <Bookmark
-                          className={cn(
-                            'h-4 w-4',
-                            isPhraseSaved ? 'fill-current' : ''
-                          )}
-                        />
-                      </button>
-                    </div>
-                  ) : null}
-                  <div className="mt-1 font-[var(--font-heading)] text-lg font-bold leading-relaxed text-ink sm:text-xl">
-                    {tokenizeSentence(sentence.text).map((token, index) => {
-                      const normalized = normalizeWord(token);
-                      const isWord = normalized.length > 0;
-                      const tokenKey = `${sentence.id}-${index}`;
-                      const isWordActive = activeWordKey === tokenKey;
-                      const translation = wordTranslations[normalized];
-                      const isWordSaved = savedWordsSet.has(`${video.id}:${normalized}`);
-
-                      if (!isWord) {
-                        return <span key={tokenKey}>{token}</span>;
-                      }
-
-                      return (
-                        <span key={tokenKey} className="relative inline-block">
-                          <button
-                            className={cn(
-                              'inline rounded px-1 py-0.5 transition',
-                              isWordActive ? 'bg-accent/20' : 'hover:bg-accent/10'
-                            )}
-                            onClick={(event) => handleWordClick(event, token, tokenKey)}
-                            type="button"
-                          >
-                            {token}
-                          </button>
-                          {isWordActive ? (
-                            <span className="absolute bottom-full left-1/2 z-10 mb-1.5 flex -translate-x-1/2 items-center gap-2.5 whitespace-nowrap rounded-full border border-border/80 bg-panel px-3 py-2 text-xs font-semibold text-ink sm:text-sm">
-                              <span className="text-xs font-medium sm:text-sm">
-                                {loadingWordKey === tokenKey
-                                  ? '...'
-                                  : (translation ?? 'translation unavailable')}
-                              </span>
-                              <button
-                                type="button"
-                                className={cn(
-                                  'inline-flex items-center justify-center rounded-md border p-1.5 transition',
-                                  isWordSaved
-                                    ? 'border-warm bg-warm/15 text-warm'
-                                    : 'border-accent bg-accent/10 text-accent hover:bg-accent/20'
-                                )}
-                                onClick={(event) =>
-                                  handleSaveWordForLater(event, {
-                                    token,
-                                    normalized,
-                                    sentence: sentence.text
-                                  })
-                                }
-                                disabled={loadingWordKey === tokenKey}
-                                aria-label={isWordSaved ? 'Unsave word' : 'Save word'}
-                                title={isWordSaved ? 'Unsave word' : 'Save word'}
-                              >
-                                <Bookmark
-                                  className={cn(
-                                    'h-4 w-4',
-                                    isWordSaved ? 'fill-current' : ''
-                                  )}
-                                />
-                              </button>
-                            </span>
-                          ) : null}
-                        </span>
-                      );
-                    })}
-                  </div>
-                  {showSentenceTranslations ? (
-                    <p className="mt-2 font-[var(--font-heading)] text-base font-normal leading-relaxed text-muted sm:text-lg">
-                      {sentenceTranslations[sentence.id] ?? '...'}
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </aside>
+      <TranscriptPanel
+        transcript={transcript}
+        currentSentenceId={currentSentenceId}
+        activePhrase={activePhrase}
+        loadingPhraseKey={loadingPhraseKey}
+        phraseTranslations={phraseTranslations}
+        savedWordsSet={savedWordsSet}
+        videoId={video.id}
+        activeWordKey={activeWordKey}
+        loadingWordKey={loadingWordKey}
+        wordTranslations={wordTranslations}
+        showSentenceTranslations={showSentenceTranslations}
+        sentenceTranslations={sentenceTranslations}
+        sentenceRefs={sentenceRefs}
+        onToggleSentenceTranslations={() =>
+          setShowSentenceTranslations((previous) => !previous)
+        }
+        onSeek={handleSeek}
+        onPhraseSelection={handlePhraseSelection}
+        onTogglePhraseSave={handleTogglePhraseSave}
+        onWordClick={handleWordClick}
+        onSaveWord={handleSaveWordForLater}
+      />
     </div>
   );
 }

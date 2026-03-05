@@ -26,6 +26,7 @@ interface FullscreenSubtitleOverlayProps {
     event: SyntheticEvent<HTMLButtonElement>,
     params: { token: string; normalized: string; sentence: string }
   ) => void;
+  onUserInteraction: () => void;
 }
 
 export function FullscreenSubtitleOverlay({
@@ -39,13 +40,14 @@ export function FullscreenSubtitleOverlay({
   overlayRef,
   onOverlayInteract,
   onWordClick,
-  onSaveWord
+  onSaveWord,
+  onUserInteraction
 }: FullscreenSubtitleOverlayProps) {
   return (
     <div
       ref={overlayRef}
       className={cn(
-        'pointer-events-auto absolute left-1/2 z-10 -translate-x-1/2 select-none px-4 text-center touch-none sm:px-6',
+        'pointer-events-auto absolute left-1/2 z-[56] -translate-x-1/2 select-none px-4 text-center touch-none sm:px-6',
         isPortraitVideo
           ? 'bottom-12 w-[min(92%,620px)]'
           : 'bottom-8 w-[min(94%,1100px)] md:bottom-10'
@@ -54,6 +56,8 @@ export function FullscreenSubtitleOverlay({
       onTouchEnd={onOverlayInteract}
       onPointerDown={onOverlayInteract}
       onClick={onOverlayInteract}
+      onMouseMove={onUserInteraction}
+      onTouchMove={onUserInteraction}
     >
       <div
         className={cn(
@@ -96,6 +100,7 @@ export function FullscreenSubtitleOverlay({
                 )}
                 onTouchStart={onOverlayInteract}
                 onPointerDown={(event) => {
+                  onUserInteraction();
                   onOverlayInteract(event);
                   onWordClick(event, token, tokenKey);
                 }}
@@ -121,6 +126,7 @@ export function FullscreenSubtitleOverlay({
                     )}
                     onTouchStart={onOverlayInteract}
                     onPointerDown={(event) => {
+                      onUserInteraction();
                       onOverlayInteract(event);
                       onSaveWord(event, {
                         token,
