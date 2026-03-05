@@ -91,6 +91,7 @@ function LearnerShell({ children }: AppShellProps) {
   const levelInfo: Record<(typeof LEVELS)[number], { subtitle: string; tone: string }> = {
     A1: { subtitle: 'Starter German', tone: 'from-blue-500 to-indigo-500' },
     A2: { subtitle: 'Everyday German', tone: 'from-emerald-400 to-cyan-500' },
+    B1: { subtitle: 'Conversational German', tone: 'from-violet-400 to-fuchsia-500' },
     B2: { subtitle: 'Independent German', tone: 'from-orange-400 to-rose-500' },
     C1: { subtitle: 'Advanced Fluency', tone: 'from-sky-400 to-blue-600' }
   };
